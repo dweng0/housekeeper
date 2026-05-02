@@ -8,6 +8,8 @@ import { makeJsonAutomationRepository } from "./automation/json-automation-repos
 import { makeAutomationRouter } from "./automation/automation-router.js";
 import { makeAutomationEngine } from "./automation/automation-engine.js";
 import { mqttDeviceGateway } from "./mqtt/mqtt-device-gateway.js";
+import { WhisperCppAdapter } from "./voice/whisper-cpp-adapter.js";
+import { makeListeningWindow } from "./voice/listening-window.js";
 import type { AppConfig, Device } from "./ports.js";
 
 const app = express();
@@ -30,6 +32,29 @@ const automationEngine = makeAutomationEngine({
 });
 
 automationEngine.start();
+
+const systemName = process.env.SYSTEM_NAME ?? "Jarvis";
+const whisperModel = process.env.WHISPER_MODEL ?? "data/whisper-models/ggml-base.en.bin";
+const vadModel = process.env.VAD_MODEL ?? "data/vad-models/ggml-silero-v6.2.0.bin";
+const vadSilenceMs = Number(process.env.VAD_SILENCE_MS ?? 700);
+
+const listeningWindow = makeListeningWindow({
+  systemName,
+  onDirectedQuestion: (transcript) => {
+    console.log("Directed question detected:", transcript);
+  },
+});
+
+const speechInput = new WhisperCppAdapter({
+  modelPath: whisperModel,
+  vadModelPath: vadModel,
+  vadSilenceDurationMs: vadSilenceMs,
+  onUtterance: (text) => {
+    listeningWindow.addUtterance(text);
+  },
+});
+
+speechInput.startListening();
 
 async function syncDiscovery(config: AppConfig) {
   if (config.autoDiscovery) {

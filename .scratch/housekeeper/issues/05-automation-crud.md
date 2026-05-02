@@ -1,4 +1,4 @@
-Status: needs-triage
+Status: done
 
 # Automation CRUD (dashboard)
 
@@ -8,12 +8,12 @@ Full vertical slice for creating, editing, and deleting Automations via the dash
 
 ## Acceptance criteria
 
-- [ ] `AutomationRepository` adapter reads/writes `data/automations.json`
-- [ ] Express routes: `GET /automations`, `POST /automations`, `PUT /automations/:id`, `DELETE /automations/:id`
-- [ ] Dashboard lists Automations (Trigger Device Label → Action Device Label)
-- [ ] Dashboard form creates an Automation: pick Trigger Sensor by Label, pick Actuator by Label, set optional duration
-- [ ] Automation cannot reference a Device Label that does not exist in `devices.json`
-- [ ] Automations can be enabled/disabled via toggle in dashboard
+- [x] `AutomationRepository` adapter reads/writes `data/automations.json`
+- [x] Express routes: `GET /automations`, `POST /automations`, `PUT /automations/:id`, `DELETE /automations/:id`
+- [x] Dashboard lists Automations (Trigger Device Label → Action Device Label)
+- [x] Dashboard form creates an Automation: pick Trigger Sensor by Label, pick Actuator by Label, set optional duration
+- [x] Automation cannot reference a Device Label that does not exist in `devices.json`
+- [x] Automations can be enabled/disabled via toggle in dashboard
 
 ## Blocked by
 

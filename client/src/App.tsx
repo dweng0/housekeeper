@@ -17,6 +17,13 @@ interface AppConfig {
   autoDiscovery: boolean;
 }
 
+interface Automation {
+  id: string;
+  enabled: boolean;
+  trigger: { deviceLabel: string; event: string };
+  actions: { deviceLabel: string; command: string; durationSeconds?: number; reverseCommand?: string }[];
+}
+
 type FormState = {
   id: string | null;
   label: string;
@@ -24,7 +31,21 @@ type FormState = {
   type: "sensor" | "actuator";
 };
 
+type AutomationFormState = {
+  id: string | null;
+  enabled: boolean;
+  triggerLabel: string;
+  triggerEvent: string;
+  actionLabel: string;
+  actionCommand: string;
+  durationSeconds: string;
+  reverseCommand: string;
+};
+
 const EMPTY_FORM: FormState = { id: null, label: "", topic: "", type: "sensor" };
+const EMPTY_AUTOMATION_FORM: AutomationFormState = {
+  id: null, enabled: true, triggerLabel: "", triggerEvent: "", actionLabel: "", actionCommand: "", durationSeconds: "", reverseCommand: ""
+};
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init);
@@ -37,20 +58,25 @@ export default function App() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [unregistered, setUnregistered] = useState<UnregisteredDevice[]>([]);
   const [config, setConfig] = useState<AppConfig>({ autoDiscovery: false });
+  const [automations, setAutomations] = useState<Automation[]>([]);
   const [form, setForm] = useState<FormState | null>(null);
+  const [automationForm, setAutomationForm] = useState<AutomationFormState | null>(null);
   const [labelForm, setLabelForm] = useState<{ topic: string; label: string; type: "sensor" | "actuator" } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [automationError, setAutomationError] = useState<string | null>(null);
   const [labelError, setLabelError] = useState<string | null>(null);
 
   async function load() {
-    const [data, cfg, unrg] = await Promise.all([
+    const [data, cfg, unrg, autos] = await Promise.all([
       apiFetch<Device[]>("/api/devices"),
       apiFetch<AppConfig>("/api/config"),
       apiFetch<UnregisteredDevice[]>("/api/unregistered-devices"),
+      apiFetch<Automation[]>("/api/automations"),
     ]);
     setDevices(data);
     setConfig(cfg);
     setUnregistered(unrg);
+    setAutomations(autos);
   }
 
   useEffect(() => { load(); }, []);
@@ -84,8 +110,45 @@ export default function App() {
     setLabelError(null);
   }
 
+  function openCreateAutomation() {
+    setAutomationForm(EMPTY_AUTOMATION_FORM);
+    setAutomationError(null);
+  }
+
+  function openEditAutomation(automation: Automation) {
+    setAutomationForm({
+      id: automation.id,
+      enabled: automation.enabled,
+      triggerLabel: automation.trigger.deviceLabel,
+      triggerEvent: automation.trigger.event,
+      actionLabel: automation.actions[0]?.deviceLabel ?? "",
+      actionCommand: automation.actions[0]?.command ?? "",
+      durationSeconds: automation.actions[0]?.durationSeconds?.toString() ?? "",
+      reverseCommand: automation.actions[0]?.reverseCommand ?? "",
+    });
+    setAutomationError(null);
+  }
+
   async function handleDelete(id: string) {
     await apiFetch<undefined>(`/api/devices/${id}`, { method: "DELETE" });
+    await load();
+  }
+
+  async function handleDeleteAutomation(id: string) {
+    await apiFetch<undefined>(`/api/automations/${id}`, { method: "DELETE" });
+    await load();
+  }
+
+  async function handleToggleAutomation(automation: Automation) {
+    await apiFetch<Automation>(`/api/automations/${automation.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        enabled: !automation.enabled,
+        trigger: automation.trigger,
+        actions: automation.actions,
+      }),
+    });
     await load();
   }
 
@@ -115,6 +178,45 @@ export default function App() {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Request failed");
+    }
+  }
+
+  async function handleAutomationSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!automationForm) return;
+    if (!automationForm.triggerLabel || !automationForm.actionLabel) {
+      setAutomationError("Trigger and Action devices are required");
+      return;
+    }
+    setAutomationError(null);
+    const payload = {
+      enabled: automationForm.enabled,
+      trigger: { deviceLabel: automationForm.triggerLabel, event: automationForm.triggerEvent },
+      actions: [{
+        deviceLabel: automationForm.actionLabel,
+        command: automationForm.actionCommand,
+        durationSeconds: automationForm.durationSeconds ? parseInt(automationForm.durationSeconds) : undefined,
+        reverseCommand: automationForm.reverseCommand || undefined,
+      }],
+    };
+    try {
+      if (automationForm.id) {
+        await apiFetch<Automation>(`/api/automations/${automationForm.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await apiFetch<Automation>("/api/automations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
+      setAutomationForm(null);
+      await load();
+    } catch (err) {
+      setAutomationError(err instanceof Error ? err.message : "Request failed");
     }
   }
 
@@ -373,6 +475,202 @@ export default function App() {
                         size="icon-sm"
                         onClick={() => handleDelete(device.id)}
                         aria-label={`Delete ${device.label}`}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Automations */}
+      <div className="flex items-center justify-between mb-4 mt-10">
+        <h1 className="text-2xl font-semibold text-foreground">Automations</h1>
+        <Button onClick={openCreateAutomation} size="sm">
+          <Plus />
+          Add Automation
+        </Button>
+      </div>
+
+      {automationForm && (
+        <form
+          onSubmit={handleAutomationSubmit}
+          className="mb-8 rounded-lg border border-border bg-card p-5 space-y-4"
+        >
+          <h2 className="text-base font-medium text-card-foreground">
+            {automationForm.id ? "Edit Automation" : "New Automation"}
+          </h2>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1">
+              <label className="text-sm text-muted-foreground" htmlFor="triggerLabel">
+                Trigger Sensor <span className="text-destructive">*</span>
+              </label>
+              <select
+                id="triggerLabel"
+                className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+                value={automationForm.triggerLabel}
+                onChange={(e) => setAutomationForm({ ...automationForm, triggerLabel: e.target.value })}
+              >
+                <option value="">Select sensor...</option>
+                {devices.filter(d => d.type === "sensor").map(d => (
+                  <option key={d.id} value={d.label}>{d.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-sm text-muted-foreground" htmlFor="triggerEvent">
+                Trigger Event
+              </label>
+              <input
+                id="triggerEvent"
+                className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+                value={automationForm.triggerEvent}
+                onChange={(e) => setAutomationForm({ ...automationForm, triggerEvent: e.target.value })}
+                placeholder="open"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-sm text-muted-foreground" htmlFor="actionLabel">
+                Action Actuator <span className="text-destructive">*</span>
+              </label>
+              <select
+                id="actionLabel"
+                className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+                value={automationForm.actionLabel}
+                onChange={(e) => setAutomationForm({ ...automationForm, actionLabel: e.target.value })}
+              >
+                <option value="">Select actuator...</option>
+                {devices.filter(d => d.type === "actuator").map(d => (
+                  <option key={d.id} value={d.label}>{d.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-sm text-muted-foreground" htmlFor="actionCommand">
+                Action Command
+              </label>
+              <input
+                id="actionCommand"
+                className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+                value={automationForm.actionCommand}
+                onChange={(e) => setAutomationForm({ ...automationForm, actionCommand: e.target.value })}
+                placeholder="on"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-sm text-muted-foreground" htmlFor="durationSeconds">
+                Duration (seconds)
+              </label>
+              <input
+                id="durationSeconds"
+                type="number"
+                className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+                value={automationForm.durationSeconds}
+                onChange={(e) => setAutomationForm({ ...automationForm, durationSeconds: e.target.value })}
+                placeholder="30"
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-sm text-muted-foreground" htmlFor="reverseCommand">
+                Reverse Command
+              </label>
+              <input
+                id="reverseCommand"
+                className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+                value={automationForm.reverseCommand}
+                onChange={(e) => setAutomationForm({ ...automationForm, reverseCommand: e.target.value })}
+                placeholder="off"
+              />
+            </div>
+          </div>
+
+          {automationError && <p className="text-sm text-destructive">{automationError}</p>}
+
+          <div className="flex gap-2">
+            <Button type="submit" size="sm">
+              {automationForm.id ? "Save" : "Create"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setAutomationForm(null)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {automations.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No automations configured yet.</p>
+      ) : (
+        <div className="rounded-lg border border-border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-muted text-muted-foreground">
+              <tr>
+                <th className="px-4 py-2.5 text-left font-medium w-8">Enabled</th>
+                <th className="px-4 py-2.5 text-left font-medium">Trigger</th>
+                <th className="px-4 py-2.5 text-left font-medium">Action</th>
+                <th className="px-4 py-2.5 text-right font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border bg-card">
+              {automations.map((automation) => (
+                <tr key={automation.id} className="hover:bg-muted/40 transition-colors">
+                  <td className="px-4 py-3">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={automation.enabled}
+                      onClick={() => handleToggleAutomation(automation)}
+                      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-ring ${
+                        automation.enabled ? "bg-primary" : "bg-muted"
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                          automation.enabled ? "translate-x-4" : "translate-x-0"
+                        }`}
+                      />
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 text-foreground">
+                    <span className="font-medium">{automation.trigger.deviceLabel}</span>
+                    <span className="text-muted-foreground ml-1">→ {automation.trigger.event}</span>
+                  </td>
+                  <td className="px-4 py-3 text-foreground">
+                    <span className="font-medium">{automation.actions[0]?.deviceLabel}</span>
+                    <span className="text-muted-foreground ml-1">→ {automation.actions[0]?.command}</span>
+                    {automation.actions[0]?.durationSeconds && (
+                      <span className="text-xs text-muted-foreground ml-1">({automation.actions[0].durationSeconds}s)</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => openEditAutomation(automation)}
+                        aria-label={`Edit automation`}
+                      >
+                        <Pencil />
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="icon-sm"
+                        onClick={() => handleDeleteAutomation(automation.id)}
+                        aria-label={`Delete automation`}
                       >
                         <Trash2 />
                       </Button>

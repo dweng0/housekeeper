@@ -5,6 +5,7 @@
     pkgs.typescript
     pkgs.piper-tts
     pkgs.whisper-cpp
+    pkgs.curl
   ];
 
   languages.typescript.enable = true;
@@ -21,6 +22,11 @@
     exec = "ollama serve";
   };
 
+  processes.download-vad = {
+    exec = "./scripts/download-silero-vad.sh";
+    processRunner = "oneshot";
+  };
+
   scripts.test-backend.exec = "npm test";
   scripts.test-frontend.exec = "cd client && npm test";
 
@@ -32,5 +38,8 @@
     PORT = "3000";
     PIPER_VOICE = "data/piper-voices/en_US-lessac-medium.onnx";
     WHISPER_MODEL = "data/whisper-models/ggml-base.en.bin";
+    VAD_MODEL = "data/vad-models/ggml-silero-v6.2.0.bin";
+    SYSTEM_NAME = "Jarvis";
+    VAD_SILENCE_MS = "700";
   };
 }

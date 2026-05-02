@@ -14,7 +14,7 @@ container_name = null;
 active_profiles = [ ];
 hostname = "jay-XPS-9320";
 username = "jay";
-git_root = null;
+git_root = "/home/jay/projects/housekeeper";
 
         in {
         git-hooks.url = "github:cachix/git-hooks.nix";
@@ -41,7 +41,7 @@ container_name = null;
 active_profiles = [ ];
 hostname = "jay-XPS-9320";
 username = "jay";
-git_root = null;
+git_root = "/home/jay/projects/housekeeper";
 
             devenv =
             if builtins.pathExists (devenv_dotfile_path + "/devenv.json")

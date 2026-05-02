@@ -1,4 +1,4 @@
-Status: needs-triage
+Status: done
 
 # Automation execution engine
 
@@ -8,12 +8,12 @@ Subscribe to MQTT, evaluate Triggers on incoming events, and dispatch Actions to
 
 ## Acceptance criteria
 
-- [ ] Server subscribes to MQTT topics for all registered Sensor Devices on startup
-- [ ] Incoming MQTT message evaluated against all enabled Automations
-- [ ] Matching Automation fires its Actions (publishes MQTT message to Actuator topic)
-- [ ] Duration-based Actions (e.g. "turn on for 30 seconds") auto-reverse after timeout
-- [ ] Disabled Automations are skipped
-- [ ] Engine reloads `automations.json` when file changes (no restart required)
+- [x] Server subscribes to MQTT topics for all registered Sensor Devices on startup
+- [x] Incoming MQTT message evaluated against all enabled Automations
+- [x] Matching Automation fires its Actions (publishes MQTT message to Actuator topic)
+- [x] Duration-based Actions (e.g. "turn on for 30 seconds") auto-reverse after timeout
+- [x] Disabled Automations are skipped
+- [x] Engine reloads `automations.json` when file changes (no restart required)
 
 ## Blocked by
 
