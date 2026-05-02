@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.devenv/
+.direnv/
+devenv.local.nix
+client/node_modules/
+client/dist/
+*.js.map
+.env
+.env.local
