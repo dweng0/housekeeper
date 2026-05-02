@@ -8,3 +8,6 @@ client/dist/
 *.js.map
 .env
 .env.local
+
+# Large model files
+data/whisper-models/*.bin
