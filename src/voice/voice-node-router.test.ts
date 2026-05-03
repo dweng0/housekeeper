@@ -21,12 +21,15 @@ function makeRepo(initial: VoiceNode[] = []): VoiceNodeRepository & { nodes: Voi
   };
 }
 
-function makeHub(connected: VoiceNode[] = []): VoiceNodeHub {
+function makeHub(connected: VoiceNode[] = []): VoiceNodeHub & { configsSent: { nodeId: string; patch: unknown }[] } {
+  const configsSent: { nodeId: string; patch: unknown }[] = [];
   return {
+    configsSent,
     start: () => {},
     stop: () => {},
     onUtterance: () => {},
     sendTts: async () => {},
+    sendConfig: async (nodeId, patch) => { configsSent.push({ nodeId, patch }); },
     getNode: (id) => connected.find((n) => n.id === id),
     getConnectedNodes: () => connected,
   };
@@ -103,6 +106,33 @@ describe("PUT /api/voice-nodes/:id", () => {
     const app = makeApp(makeRepo(), makeHub());
     const res = await request(app).put("/api/voice-nodes/ghost").send({ label: "Ghost" });
     expect(res.status).toBe(404);
+  });
+});
+
+describe("PUT /api/voice-nodes/:id — config push", () => {
+  it("calls sendConfig on hub when node is connected", async () => {
+    const repo = makeRepo([confirmed]);
+    const hub = makeHub([confirmed]);
+    const app = makeApp(repo, hub);
+    await request(app).put("/api/voice-nodes/node-hall").send({ label: "Front Hall", location: "front entrance" });
+    expect(hub.configsSent).toHaveLength(1);
+    expect(hub.configsSent[0]).toEqual({ nodeId: "node-hall", patch: { label: "Front Hall", location: "front entrance" } });
+  });
+
+  it("does not call sendConfig when node is offline", async () => {
+    const repo = makeRepo([confirmed]);
+    const hub = makeHub([]); // no connected nodes
+    const app = makeApp(repo, hub);
+    await request(app).put("/api/voice-nodes/node-hall").send({ label: "Front Hall" });
+    expect(hub.configsSent).toHaveLength(0);
+  });
+
+  it("does not include confirmed in config push patch", async () => {
+    const repo = makeRepo([unconfirmed]);
+    const hub = makeHub([unconfirmed]);
+    const app = makeApp(repo, hub);
+    await request(app).put("/api/voice-nodes/node-bed").send({ confirmed: true, label: "Bedroom" });
+    expect(hub.configsSent[0].patch).not.toHaveProperty("confirmed");
   });
 });
 

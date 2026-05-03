@@ -27,6 +27,14 @@ export function makeVoiceNodeRouter({ voiceNodes, hub }: RouterDeps): Router {
     const { label, location, confirmed } = req.body as Partial<{ label: string; location: string; confirmed: boolean }>;
     const updated = { ...node, ...(label && { label }), ...(location && { location }), ...(typeof confirmed === "boolean" && { confirmed }) };
     await voiceNodes.save(updated);
+
+    if (hub.getNode(node.id)) {
+      const patch: Record<string, unknown> = {};
+      if (label) patch.label = label;
+      if (location) patch.location = location;
+      if (Object.keys(patch).length > 0) await hub.sendConfig(node.id, patch);
+    }
+
     res.json(updated);
   });
 

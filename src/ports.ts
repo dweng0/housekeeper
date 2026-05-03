@@ -1,10 +1,17 @@
 // Inbound ports
 
+export interface VoiceNodeConfigPatch {
+  label?: string;
+  location?: string;
+  devices?: { input?: string; output?: string };
+}
+
 export interface VoiceNodeHub {
   start(): void;
   stop(): void;
   onUtterance(handler: (nodeId: string, transcript: string) => void): void;
   sendTts(nodeId: string, audio: Buffer): Promise<void>;
+  sendConfig(nodeId: string, patch: VoiceNodeConfigPatch): Promise<void>;
   getNode(nodeId: string): VoiceNode | undefined;
   getConnectedNodes(): VoiceNode[];
 }

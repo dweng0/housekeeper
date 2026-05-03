@@ -109,6 +109,39 @@ Sent when the server rejects a message.
 
 ---
 
+### `config_update`
+
+Sent when the dashboard updates a node's label, location, or audio device configuration. All fields are optional; only changed fields are included.
+
+```json
+{
+  "type": "config_update",
+  "label": "Kitchen",
+  "location": "kitchen counter",
+  "devices": { "input": "hw:1,0", "output": "hw:1,0" }
+}
+```
+
+Node validates device IDs against locally available hardware and persists changes. Node must respond with `config_updated`.
+
+---
+
+## Messages: Node → Server (continued)
+
+### `config_updated`
+
+ACK sent in response to `config_update`. Sent on success and failure.
+
+```json
+{ "type": "config_updated", "success": true }
+```
+
+```json
+{ "type": "config_updated", "success": false, "error": "Invalid input device ID: hw:9,0" }
+```
+
+---
+
 ## Connection lifecycle
 
 ```

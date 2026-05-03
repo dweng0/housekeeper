@@ -194,6 +194,52 @@ describe("WebSocketVoiceNodeHub — TTS", () => {
   });
 });
 
+describe("WebSocketVoiceNodeHub — sendConfig", () => {
+  it("sends config_update JSON frame to connected node", async () => {
+    client = await connect(port);
+    const regReply = nextMessage(client);
+    client.send(registerMessage());
+    await regReply;
+
+    const received: unknown[] = [];
+    client.on("message", (data, isBinary) => { if (!isBinary) received.push(JSON.parse(data.toString())); });
+
+    await hub.sendConfig("node-hall", { label: "Kitchen", location: "kitchen counter" });
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+    expect(received[0]).toEqual({ type: "config_update", label: "Kitchen", location: "kitchen counter" });
+  });
+
+  it("sendConfig to offline node is silent no-op", async () => {
+    await expect(hub.sendConfig("ghost", { label: "Kitchen" })).resolves.toBeUndefined();
+  });
+
+  it("sendConfig omits undefined fields from JSON frame", async () => {
+    client = await connect(port);
+    const regReply = nextMessage(client);
+    client.send(registerMessage());
+    await regReply;
+
+    const received: unknown[] = [];
+    client.on("message", (data, isBinary) => { if (!isBinary) received.push(JSON.parse(data.toString())); });
+
+    await hub.sendConfig("node-hall", { label: "Kitchen" });
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+    expect(received[0]).not.toHaveProperty("location");
+    expect(received[0]).not.toHaveProperty("devices");
+  });
+
+  it("config_updated ACK from node does not crash hub", async () => {
+    client = await connect(port);
+    const regReply = nextMessage(client);
+    client.send(registerMessage());
+    await regReply;
+
+    client.send(JSON.stringify({ type: "config_updated", success: true }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(hub.getConnectedNodes()).toHaveLength(1);
+  });
+});
+
 describe("WebSocketVoiceNodeHub — invalid messages", () => {
   it("invalid JSON sends INVALID_MESSAGE error", async () => {
     client = await connect(port);

@@ -1,5 +1,5 @@
 import { WebSocketServer, WebSocket } from "ws";
-import type { VoiceNode, VoiceNodeHub, VoiceNodeRepository } from "../ports.js";
+import type { VoiceNode, VoiceNodeHub, VoiceNodeConfigPatch, VoiceNodeRepository } from "../ports.js";
 
 interface RegisterMessage {
   type: "register";
@@ -14,7 +14,13 @@ interface UtteranceMessage {
   text: string;
 }
 
-type InboundMessage = RegisterMessage | UtteranceMessage | { type: string };
+interface ConfigUpdatedMessage {
+  type: "config_updated";
+  success: boolean;
+  error?: string;
+}
+
+type InboundMessage = RegisterMessage | UtteranceMessage | ConfigUpdatedMessage | { type: string };
 
 export function makeWebSocketVoiceNodeHub(
   repository: VoiceNodeRepository,
@@ -86,6 +92,9 @@ export function makeWebSocketVoiceNodeHub(
       handleRegister(ws, msg as RegisterMessage);
     } else if (msg.type === "utterance") {
       handleUtterance(ws, msg as UtteranceMessage);
+    } else if (msg.type === "config_updated") {
+      const ack = msg as ConfigUpdatedMessage;
+      if (!ack.success) console.warn(`[VoiceNodeHub] config_updated failed: ${ack.error}`);
     } else {
       sendError(ws, "INVALID_MESSAGE", `unknown message type: ${msg.type}`);
     }
@@ -141,6 +150,16 @@ export function makeWebSocketVoiceNodeHub(
         return;
       }
       ws.send(audio);
+    },
+
+    async sendConfig(nodeId, patch: VoiceNodeConfigPatch) {
+      const ws = connections.get(nodeId);
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const msg: Record<string, unknown> = { type: "config_update" };
+      if (patch.label !== undefined) msg.label = patch.label;
+      if (patch.location !== undefined) msg.location = patch.location;
+      if (patch.devices !== undefined) msg.devices = patch.devices;
+      sendJson(ws, msg);
     },
 
     getNode(nodeId) {
