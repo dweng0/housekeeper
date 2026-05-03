@@ -79,6 +79,7 @@ export default function App() {
   const [form, setForm] = useState<FormState | null>(null);
   const [automationForm, setAutomationForm] = useState<AutomationFormState | null>(null);
   const [labelForm, setLabelForm] = useState<{ topic: string; label: string; type: "sensor" | "actuator" } | null>(null);
+  const [voiceNodeEditForm, setVoiceNodeEditForm] = useState<{ id: string; label: string; location: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [automationError, setAutomationError] = useState<string | null>(null);
   const [labelError, setLabelError] = useState<string | null>(null);
@@ -576,24 +577,65 @@ export default function App() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border bg-card">
-                {voiceNodes.filter(n => n.confirmed).map(node => (
-                  <tr key={node.id} className="hover:bg-muted/40 transition-colors">
-                    <td className="px-4 py-3 font-medium">{node.label}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{node.location}</td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">{node.capabilities.join(", ")}</td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${node.online ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"}`}>
-                        {node.online ? "online" : "offline"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <Button variant="destructive" size="icon-sm" onClick={async () => {
-                        await apiFetch(`/api/voice-nodes/${node.id}`, { method: "DELETE" });
-                        await load();
-                      }} aria-label={`Delete ${node.label}`}><Trash2 /></Button>
-                    </td>
-                  </tr>
-                ))}
+                {voiceNodes.filter(n => n.confirmed).map(node => {
+                  const isEditing = voiceNodeEditForm?.id === node.id;
+                  return isEditing ? (
+                    <tr key={node.id} className="bg-muted/40">
+                      <td className="px-4 py-2">
+                        <input
+                          className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-ring"
+                          value={voiceNodeEditForm.label}
+                          onChange={e => setVoiceNodeEditForm({ ...voiceNodeEditForm, label: e.target.value })}
+                          placeholder="Label"
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <input
+                          className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-ring"
+                          value={voiceNodeEditForm.location}
+                          onChange={e => setVoiceNodeEditForm({ ...voiceNodeEditForm, location: e.target.value })}
+                          placeholder="Location"
+                        />
+                      </td>
+                      <td className="px-4 py-2 text-xs text-muted-foreground">{node.capabilities.join(", ")}</td>
+                      <td className="px-4 py-2">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${node.online ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"}`}>
+                          {node.online ? "online" : "offline"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2 text-right flex gap-2 justify-end">
+                        <Button size="sm" onClick={async () => {
+                          await apiFetch(`/api/voice-nodes/${node.id}`, {
+                            method: "PUT",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ label: voiceNodeEditForm.label, location: voiceNodeEditForm.location }),
+                          });
+                          setVoiceNodeEditForm(null);
+                          await load();
+                        }}>Save</Button>
+                        <Button size="sm" variant="ghost" onClick={() => setVoiceNodeEditForm(null)}>Cancel</Button>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={node.id} className="hover:bg-muted/40 transition-colors">
+                      <td className="px-4 py-3 font-medium">{node.label}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{node.location}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{node.capabilities.join(", ")}</td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${node.online ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"}`}>
+                          {node.online ? "online" : "offline"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right flex gap-2 justify-end">
+                        <Button variant="ghost" size="icon-sm" onClick={() => setVoiceNodeEditForm({ id: node.id, label: node.label, location: node.location })} aria-label={`Edit ${node.label}`}><Pencil /></Button>
+                        <Button variant="destructive" size="icon-sm" onClick={async () => {
+                          await apiFetch(`/api/voice-nodes/${node.id}`, { method: "DELETE" });
+                          await load();
+                        }} aria-label={`Delete ${node.label}`}><Trash2 /></Button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
