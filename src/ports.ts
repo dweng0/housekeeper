@@ -109,7 +109,8 @@ export interface AppConfig {
 }
 
 export interface ClassifiedIntent {
-  type: "create-automation" | "query" | "unknown";
+  type: "create-automation" | "query" | "set-resident" | "unknown";
   automation?: Omit<Automation, "id">;
   query?: string;
+  residentName?: string;
 }

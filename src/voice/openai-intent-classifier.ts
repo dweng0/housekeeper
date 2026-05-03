@@ -25,8 +25,10 @@ ${labelList}${memorySection}
 Return JSON matching one of these shapes:
 - { "type": "create-automation", "automation": { "enabled": true, "trigger": { "deviceLabel": "<label>", "event": "<event>" }, "actions": [{ "deviceLabel": "<label>", "command": "<cmd>", "durationSeconds": <n>, "reverseCommand": "<cmd>" }] } }
 - { "type": "query", "query": "<question>" }
+- { "type": "set-resident", "residentName": "<name>" }
 - { "type": "unknown" }
 
+Use "set-resident" when the speaker identifies themselves (e.g. "this is Jay", "I'm Sarah").
 Use "unknown" if the utterance is not addressed to the assistant or intent is unclear.
 Only reference device labels from the known list above.
 Return only valid JSON, no markdown.`;

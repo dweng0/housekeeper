@@ -6,10 +6,26 @@ import type {
   Device,
   DeviceRepository,
   IntentClassifier,
+  MemoryStore,
   VoiceNodeHub,
   SpeechOutput,
 } from "../ports.js";
+import { makeResidentSession } from "../memory/resident-session.js";
 import { makeVoiceAutomationService } from "./voice-automation-service.js";
+
+function makeMemoryStore(): MemoryStore & { stored: { residentId: string; fact: string }[] } {
+  const stored: { residentId: string; fact: string }[] = [];
+  const memories: Map<string, string[]> = new Map();
+  return {
+    stored,
+    store: vi.fn(async (residentId, fact) => {
+      stored.push({ residentId, fact });
+      memories.set(residentId, [...(memories.get(residentId) ?? []), fact]);
+    }),
+    search: vi.fn(async (residentId, _query) => memories.get(residentId) ?? []),
+    clear: vi.fn(async () => {}),
+  };
+}
 
 const sensor: Device = { id: "d1", label: "Front Door", topic: "home/front-door", type: "sensor" };
 const actuator: Device = { id: "d2", label: "Porch Light", topic: "home/porch-light", type: "actuator" };
@@ -238,5 +254,117 @@ describe("VoiceAutomationService", () => {
     emit("housekeeper do something", "node-kitchen");
     emit("housekeeper do something", "node-hallway");
     await vi.waitFor(() => expect(classifySpy).toHaveBeenCalledTimes(2));
+  });
+
+  describe("Resident Session integration", () => {
+    it("set-resident intent activates the Resident Session", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const session = makeResidentSession();
+      const { output } = makeSpeechOutput();
+      const intent: ClassifiedIntent = { type: "set-resident", residentName: "Jay" };
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: makeClassifier(intent),
+        devices: makeDeviceRepo([]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        session,
+      });
+
+      service.start();
+      emit("housekeeper this is Jay");
+      await vi.waitFor(() => expect(session.getActive()).toBe("Jay"));
+    });
+
+    it("no active session passes household residentId to classifier", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const session = makeResidentSession(); // no setActive called
+      const classifySpy = vi.fn().mockResolvedValue({ type: "unknown" } as ClassifiedIntent);
+      const { output } = makeSpeechOutput();
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: { classify: classifySpy },
+        devices: makeDeviceRepo([]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        session,
+        memoryStore: makeMemoryStore(),
+      });
+
+      service.start();
+      emit("housekeeper what time is it");
+      await vi.waitFor(() => expect(classifySpy).toHaveBeenCalledOnce());
+
+      expect(classifySpy).toHaveBeenCalledWith("housekeeper what time is it", "household", []);
+    });
+
+    it("classifier receives residentId and memories from memoryStore", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const session = makeResidentSession();
+      session.setActive("Jay");
+      const memoryStore = makeMemoryStore();
+      await memoryStore.store("Jay", "Jay prefers lights dim at night");
+      const classifySpy = vi.fn().mockResolvedValue({ type: "unknown" } as ClassifiedIntent);
+      const { output } = makeSpeechOutput();
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: { classify: classifySpy },
+        devices: makeDeviceRepo([]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        session,
+        memoryStore,
+      });
+
+      service.start();
+      emit("housekeeper turn on lights");
+      await vi.waitFor(() => expect(classifySpy).toHaveBeenCalledOnce());
+
+      expect(classifySpy).toHaveBeenCalledWith(
+        "housekeeper turn on lights",
+        "Jay",
+        ["Jay prefers lights dim at night"],
+      );
+    });
+    it("stores automation fact to memoryStore after creation", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const session = makeResidentSession();
+      session.setActive("Jay");
+      const memoryStore = makeMemoryStore();
+      const { output } = makeSpeechOutput();
+      const intent: ClassifiedIntent = {
+        type: "create-automation",
+        automation: {
+          enabled: true,
+          trigger: { deviceLabel: "Front Door", event: "open" },
+          actions: [{ deviceLabel: "Porch Light", command: "on" }],
+        },
+      };
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: makeClassifier(intent),
+        devices: makeDeviceRepo([sensor, actuator]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        session,
+        memoryStore,
+      });
+
+      service.start();
+      emit("housekeeper when front door opens turn on porch light");
+      await vi.waitFor(() => expect(memoryStore.stored).toHaveLength(1));
+
+      expect(memoryStore.stored[0].residentId).toBe("Jay");
+      expect(memoryStore.stored[0].fact).toMatch(/Front Door/);
+      expect(memoryStore.stored[0].fact).toMatch(/Porch Light/);
+    });
   });
 });

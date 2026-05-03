@@ -3,9 +3,11 @@ import type {
   AutomationRepository,
   DeviceRepository,
   IntentClassifier,
+  MemoryStore,
   VoiceNodeHub,
   SpeechOutput,
 } from "../ports.js";
+import type { ResidentSession } from "../memory/resident-session.js";
 import { makeListeningWindow } from "./listening-window.js";
 import type { ListeningWindow } from "./listening-window.js";
 import type { LogStore, DirectedQuestionOutcome } from "../log-store.js";
@@ -18,6 +20,8 @@ interface VoiceAutomationServiceDeps {
   automations: AutomationRepository;
   speechOutput: SpeechOutput;
   logStore?: LogStore;
+  session?: ResidentSession;
+  memoryStore?: MemoryStore;
 }
 
 export interface VoiceAutomationService {
@@ -33,6 +37,8 @@ export function makeVoiceAutomationService({
   automations,
   speechOutput,
   logStore,
+  session,
+  memoryStore,
 }: VoiceAutomationServiceDeps): VoiceAutomationService {
   const windows = new Map<string, ListeningWindow>();
 
@@ -45,9 +51,16 @@ export function makeVoiceAutomationService({
           let outcome: DirectedQuestionOutcome = "unknown-intent";
 
           try {
-            intent = await classifier.classify(transcript);
+            const residentId = session?.getResidentId();
+            const memories = memoryStore && residentId
+              ? await memoryStore.search(residentId, transcript)
+              : [];
+            intent = await classifier.classify(transcript, residentId, memories);
 
-            if (intent.type !== "create-automation" || !intent.automation) {
+            if (intent.type === "set-resident" && intent.residentName) {
+              session?.setActive(intent.residentName);
+              outcome = "unknown-intent";
+            } else if (intent.type !== "create-automation" || !intent.automation) {
               outcome = "unknown-intent";
             } else {
               const { trigger, actions, enabled } = intent.automation;
@@ -83,6 +96,10 @@ export function makeVoiceAutomationService({
                   } else {
                     await automations.save({ id: randomUUID(), enabled, trigger, actions });
                     outcome = "automation-created";
+                    if (memoryStore && residentId) {
+                      const fact = `When ${trigger.deviceLabel} ${trigger.event}, ${actions.map((a) => `${a.command} ${a.deviceLabel}`).join(" and ")}`;
+                      await memoryStore.store(residentId, fact);
+                    }
                   }
                 }
               }

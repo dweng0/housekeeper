@@ -1,4 +1,4 @@
-Status: needs-triage
+Status: done
 
 # Resident session management + mem0 integration
 
@@ -8,12 +8,12 @@ Status: needs-triage
 
 ## Acceptance criteria
 
-- [ ] `MemoryStore` port interface implemented via mem0 TypeScript SDK adapter
-- [ ] "Jarvis, this is [name]" Directed Question sets active Resident Session (in-memory, resets on restart)
-- [ ] Resident Session scopes mem0 reads/writes to that Resident's context
-- [ ] No active session falls back to Household Memory context
-- [ ] Active Resident's relevant memories injected into `IntentClassifier` system prompt
-- [ ] After Automation created, relevant facts stored back to Resident (or Household) memory
+- [x] `MemoryStore` port interface implemented via mem0 TypeScript SDK adapter
+- [x] "Jarvis, this is [name]" Directed Question sets active Resident Session (in-memory, resets on restart)
+- [x] Resident Session scopes mem0 reads/writes to that Resident's context
+- [x] No active session falls back to Household Memory context
+- [x] Active Resident's relevant memories injected into `IntentClassifier` system prompt
+- [x] After Automation created, relevant facts stored back to Resident (or Household) memory
 
 ## Blocked by
 
