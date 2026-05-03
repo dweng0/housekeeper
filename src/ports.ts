@@ -1,9 +1,12 @@
 // Inbound ports
 
-export interface SpeechInput {
-  startListening(): void;
-  stopListening(): void;
-  onUtterance(handler: (transcript: string) => void): void;
+export interface VoiceNodeHub {
+  start(): void;
+  stop(): void;
+  onUtterance(handler: (nodeId: string, transcript: string) => void): void;
+  sendTts(nodeId: string, audio: Buffer): Promise<void>;
+  getNode(nodeId: string): VoiceNode | undefined;
+  getConnectedNodes(): VoiceNode[];
 }
 
 export interface IntentClassifier {
@@ -16,7 +19,7 @@ export interface HttpApi {
 }
 
 export interface SpeechOutput {
-  speak(text: string): Promise<void>;
+  speak(text: string, originatingNodeId: string): Promise<void>;
 }
 
 // Outbound ports
@@ -59,6 +62,21 @@ export interface MemoryStore {
 
 // Domain types
 
+export interface VoiceNode {
+  id: string;
+  label: string;
+  location: string;
+  capabilities: ("mic" | "speaker")[];
+  confirmed: boolean;
+}
+
+export interface VoiceNodeRepository {
+  findAll(): Promise<VoiceNode[]>;
+  findById(id: string): Promise<VoiceNode | null>;
+  save(node: VoiceNode): Promise<void>;
+  delete(id: string): Promise<void>;
+}
+
 export interface Device {
   id: string;
   label: string;
@@ -87,6 +105,7 @@ export interface Action {
 
 export interface AppConfig {
   autoDiscovery: boolean;
+  defaultOutputNodeId?: string;
 }
 
 export interface ClassifiedIntent {

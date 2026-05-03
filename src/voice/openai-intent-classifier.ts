@@ -1,9 +1,9 @@
-import type { ClassifiedIntent, IntentClassifier } from "../ports.js";
+import type { ClassifiedIntent, DeviceRepository, IntentClassifier } from "../ports.js";
 
 interface OpenAIClassifierOptions {
   endpoint: string;
   model: string;
-  deviceLabels: string[];
+  devices: DeviceRepository;
 }
 
 const UNKNOWN: ClassifiedIntent = { type: "unknown" };
@@ -32,30 +32,32 @@ Only reference device labels from the known list above.
 Return only valid JSON, no markdown.`;
 }
 
-export function makeOpenAIIntentClassifier(opts: OpenAIClassifierOptions): IntentClassifier & {
-  classify(utterance: string, residentId?: string, memories?: string[]): Promise<ClassifiedIntent>;
-} {
+export function makeOpenAIIntentClassifier(opts: OpenAIClassifierOptions): IntentClassifier {
   return {
     async classify(utterance, _residentId, memories = []) {
       try {
+        const allDevices = await opts.devices.findAll();
+        const deviceLabels = allDevices.map((d) => d.label);
+
         const response = await fetch(`${opts.endpoint}/chat/completions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             model: opts.model,
             messages: [
-              { role: "system", content: buildSystemPrompt(opts.deviceLabels, memories) },
+              { role: "system", content: buildSystemPrompt(deviceLabels, memories) },
               { role: "user", content: utterance },
             ],
             response_format: { type: "json_object" },
           }),
         });
 
-        const data = await response.json();
-        const content: string = data.choices[0].message.content;
+        const data = await response.json() as { choices: { message: { content: string } }[] };
+        const content = data.choices[0].message.content;
         const parsed = JSON.parse(content) as ClassifiedIntent;
         return parsed ?? UNKNOWN;
-      } catch {
+      } catch (err) {
+        console.error("[Classifier] error:", err instanceof Error ? err.message : err);
         return UNKNOWN;
       }
     },

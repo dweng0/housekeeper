@@ -1,4 +1,4 @@
-Status: needs-triage
+Status: done
 
 # TTS engine: Piper
 
@@ -11,7 +11,9 @@ Wire the `SpeechOutput` port so the system can speak AI responses aloud. `PiperT
 - [ ] Voice model fetch script at `scripts/download-piper-voice.sh` — downloads `en_US-lessac-medium.onnx` + `.json` into `data/piper-voices/` on first run
 - [ ] `devenv up` (or a documented `devenv shell` step) runs the fetch script if models are absent
 - [ ] `PiperTtsAdapter` wired in `src/index.ts` using `PIPER_VOICE` env var
-- [ ] After directed-question classification returns a response string, `SpeechOutput.speak()` is called with that string
+- [ ] After directed-question classification returns a response string, `SpeechOutput.speak(text, originatingNodeId)` is called
+- [ ] Response routes to originating Voice Node if it has `"speaker"` capability; otherwise falls back to Default Output Node
+- [ ] If Default Output Node is offline, log and drop (no queue)
 - [ ] ADR written at `docs/adr/0003-tts-engine-piper.md`
 - [ ] `aplay` present in devenv packages (or confirmed available on target OS)
 

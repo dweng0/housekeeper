@@ -8,8 +8,13 @@ import { makeJsonAutomationRepository } from "./automation/json-automation-repos
 import { makeAutomationRouter } from "./automation/automation-router.js";
 import { makeAutomationEngine } from "./automation/automation-engine.js";
 import { mqttDeviceGateway } from "./mqtt/mqtt-device-gateway.js";
-import { WhisperCppAdapter } from "./voice/whisper-cpp-adapter.js";
-import { makeListeningWindow } from "./voice/listening-window.js";
+import { makeWebSocketVoiceNodeHub } from "./voice/websocket-voice-node-hub.js";
+import { makeJsonVoiceNodeRepository } from "./voice/json-voice-node-repository.js";
+import { makeVoiceNodeRouter } from "./voice/voice-node-router.js";
+import { makeVoiceAutomationService } from "./voice/voice-automation-service.js";
+import { makeOpenAIIntentClassifier } from "./voice/openai-intent-classifier.js";
+import { PiperTtsAdapter } from "./voice/piper-tts-adapter.js";
+import { makeLogStore } from "./log-store.js";
 import type { AppConfig, Device } from "./ports.js";
 
 const app = express();
@@ -25,36 +30,47 @@ const automationRepository = makeJsonAutomationRepository(
   async (label) => (await jsonDeviceRepository.findByLabel(label)) !== null
 );
 
+const logStore = makeLogStore();
+
 const automationEngine = makeAutomationEngine({
   devices: jsonDeviceRepository,
   automations: automationRepository,
   gateway: mqttDeviceGateway,
+  logStore,
 });
 
 automationEngine.start();
 
-const systemName = process.env.SYSTEM_NAME ?? "Jarvis";
-const whisperModel = process.env.WHISPER_MODEL ?? "data/whisper-models/ggml-base.en.bin";
-const vadModel = process.env.VAD_MODEL ?? "data/vad-models/ggml-silero-v6.2.0.bin";
-const vadSilenceMs = Number(process.env.VAD_SILENCE_MS ?? 700);
+const voiceNodeDataPath = join(process.cwd(), "data", "voice-nodes.json");
+const voiceNodeRepository = makeJsonVoiceNodeRepository(voiceNodeDataPath);
 
-const listeningWindow = makeListeningWindow({
-  systemName,
-  onDirectedQuestion: (transcript) => {
-    console.log("Directed question detected:", transcript);
-  },
+const voiceNodePort = Number(process.env.VOICE_NODE_PORT ?? 3001);
+const voiceNodeHub = makeWebSocketVoiceNodeHub(voiceNodeRepository, voiceNodePort);
+
+const classifier = makeOpenAIIntentClassifier({
+  endpoint: process.env.LLM_ENDPOINT ?? "http://localhost:11434/v1",
+  model: process.env.LLM_MODEL ?? "llama3.2",
+  devices: jsonDeviceRepository,
 });
 
-const speechInput = new WhisperCppAdapter({
-  modelPath: whisperModel,
-  vadModelPath: vadModel,
-  vadSilenceDurationMs: vadSilenceMs,
-  onUtterance: (text) => {
-    listeningWindow.addUtterance(text);
-  },
+const piperVoice = process.env.PIPER_VOICE ?? "data/piper-voices/en_US-lessac-medium.onnx";
+const speechOutput = new PiperTtsAdapter({
+  voicePath: piperVoice,
+  voiceNodeHub,
+  config: jsonConfigRepository,
 });
 
-speechInput.startListening();
+const voiceService = makeVoiceAutomationService({
+  voiceNodeHub,
+  systemName: process.env.SYSTEM_NAME ?? "housekeeper",
+  classifier,
+  devices: jsonDeviceRepository,
+  automations: automationRepository,
+  speechOutput,
+  logStore,
+});
+
+voiceService.start();
 
 async function syncDiscovery(config: AppConfig) {
   if (config.autoDiscovery) {
@@ -68,7 +84,20 @@ async function syncDiscovery(config: AppConfig) {
 jsonConfigRepository.get().then(syncDiscovery);
 
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok" });
+  res.json({
+    status: "ok",
+    voiceNodes: {
+      connected: voiceNodeHub.getConnectedNodes().length,
+      nodes: voiceNodeHub.getConnectedNodes().map((n) => ({ id: n.id, label: n.label, location: n.location })),
+    },
+  });
+});
+
+app.get("/api/logs", (_req, res) => {
+  const { type } = _req.query;
+  const all = logStore.getAll();
+  const filtered = type ? all.filter((e) => e.type === type) : all;
+  res.json(filtered);
 });
 
 // --- Config ---
@@ -80,12 +109,12 @@ app.get("/api/config", async (_req, res) => {
 
 app.put("/api/config", async (req, res) => {
   const current = await jsonConfigRepository.get();
-  const { autoDiscovery } = req.body as Partial<AppConfig>;
+  const { autoDiscovery, defaultOutputNodeId } = req.body as Partial<AppConfig>;
   if (typeof autoDiscovery !== "boolean") {
     res.status(400).json({ error: "autoDiscovery must be a boolean" });
     return;
   }
-  const updated: AppConfig = { ...current, autoDiscovery };
+  const updated: AppConfig = { ...current, autoDiscovery, defaultOutputNodeId };
   await jsonConfigRepository.save(updated);
   await syncDiscovery(updated);
   res.json(updated);
@@ -109,6 +138,10 @@ app.use("/api/automations", makeAutomationRouter({
   automations: automationRepository,
   devices: jsonDeviceRepository,
 }));
+
+// --- Voice Nodes ---
+
+app.use("/api/voice-nodes", makeVoiceNodeRouter({ voiceNodes: voiceNodeRepository, hub: voiceNodeHub }));
 
 // --- Devices ---
 

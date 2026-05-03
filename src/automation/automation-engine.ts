@@ -1,9 +1,11 @@
 import type { AutomationRepository, DeviceGateway, DeviceRepository } from "../ports.js";
+import type { LogStore } from "../log-store.js";
 
 interface EngineDeps {
   devices: DeviceRepository;
   automations: AutomationRepository;
   gateway: DeviceGateway;
+  logStore?: LogStore;
 }
 
 export interface AutomationEngine {
@@ -11,7 +13,7 @@ export interface AutomationEngine {
   stop(): void;
 }
 
-export function makeAutomationEngine({ devices, automations, gateway }: EngineDeps): AutomationEngine {
+export function makeAutomationEngine({ devices, automations, gateway, logStore }: EngineDeps): AutomationEngine {
   return {
     async start() {
       const allDevices = await devices.findAll();
@@ -27,11 +29,13 @@ export function makeAutomationEngine({ devices, automations, gateway }: EngineDe
             if (automation.trigger.deviceLabel !== sensor.label) continue;
             if (automation.trigger.event !== payload) continue;
 
+            const firedActions: { topic: string; command: string }[] = [];
             for (const action of automation.actions) {
               const actuator = allDevicesList.find((d) => d.label === action.deviceLabel);
               if (!actuator) continue;
 
               await gateway.publish(actuator.topic, action.command);
+              firedActions.push({ topic: actuator.topic, command: action.command });
 
               if (action.durationSeconds && action.reverseCommand) {
                 setTimeout(async () => {
@@ -39,6 +43,15 @@ export function makeAutomationEngine({ devices, automations, gateway }: EngineDe
                 }, action.durationSeconds * 1000);
               }
             }
+
+            logStore?.append({
+              type: "automation-firing",
+              timestamp: new Date().toISOString(),
+              automationId: automation.id,
+              triggerTopic: sensor.topic,
+              triggerPayload: payload,
+              actions: firedActions,
+            });
           }
         });
       }

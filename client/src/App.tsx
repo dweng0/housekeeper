@@ -15,7 +15,21 @@ interface UnregisteredDevice {
 
 interface AppConfig {
   autoDiscovery: boolean;
+  defaultOutputNodeId?: string;
 }
+
+interface VoiceNode {
+  id: string;
+  label: string;
+  location: string;
+  capabilities: ("mic" | "speaker")[];
+  confirmed: boolean;
+  online: boolean;
+}
+
+type LogEntry =
+  | { type: "directed-question"; timestamp: string; nodeId: string; transcript: string; intent: { type: string }; outcome: string }
+  | { type: "automation-firing"; timestamp: string; automationId: string; triggerTopic: string; triggerPayload: string; actions: { topic: string; command: string }[] };
 
 interface Automation {
   id: string;
@@ -59,6 +73,9 @@ export default function App() {
   const [unregistered, setUnregistered] = useState<UnregisteredDevice[]>([]);
   const [config, setConfig] = useState<AppConfig>({ autoDiscovery: false });
   const [automations, setAutomations] = useState<Automation[]>([]);
+  const [voiceNodes, setVoiceNodes] = useState<VoiceNode[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [logFilter, setLogFilter] = useState<string>("");
   const [form, setForm] = useState<FormState | null>(null);
   const [automationForm, setAutomationForm] = useState<AutomationFormState | null>(null);
   const [labelForm, setLabelForm] = useState<{ topic: string; label: string; type: "sensor" | "actuator" } | null>(null);
@@ -67,25 +84,34 @@ export default function App() {
   const [labelError, setLabelError] = useState<string | null>(null);
 
   async function load() {
-    const [data, cfg, unrg, autos] = await Promise.all([
+    const [data, cfg, unrg, autos, nodes] = await Promise.all([
       apiFetch<Device[]>("/api/devices"),
       apiFetch<AppConfig>("/api/config"),
       apiFetch<UnregisteredDevice[]>("/api/unregistered-devices"),
       apiFetch<Automation[]>("/api/automations"),
+      apiFetch<VoiceNode[]>("/api/voice-nodes"),
     ]);
     setDevices(data);
     setConfig(cfg);
     setUnregistered(unrg);
     setAutomations(autos);
+    setVoiceNodes(nodes);
+  }
+
+  async function loadLogs() {
+    const filter = logFilter ? `?type=${logFilter}` : "";
+    const entries = await apiFetch<LogEntry[]>(`/api/logs${filter}`);
+    setLogs(entries);
   }
 
   useEffect(() => { load(); }, []);
+  useEffect(() => { loadLogs(); const t = setInterval(loadLogs, 4000); return () => clearInterval(t); }, [logFilter]);
 
   async function toggleAutoDiscovery() {
     const updated = await apiFetch<AppConfig>("/api/config", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ autoDiscovery: !config.autoDiscovery }),
+      body: JSON.stringify({ autoDiscovery: !config.autoDiscovery, defaultOutputNodeId: config.defaultOutputNodeId }),
     });
     setConfig(updated);
     if (!updated.autoDiscovery) setUnregistered([]);
@@ -487,6 +513,115 @@ export default function App() {
         </div>
       )}
 
+      {/* Voice Nodes */}
+      <div className="mt-10 mb-4">
+        <h1 className="text-2xl font-semibold text-foreground mb-4">Voice Nodes</h1>
+
+        {/* Unconfirmed nodes */}
+        {voiceNodes.filter(n => !n.confirmed).length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-base font-medium text-foreground mb-3">
+              Unconfirmed Nodes
+              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                ({voiceNodes.filter(n => !n.confirmed).length} pending)
+              </span>
+            </h2>
+            <div className="rounded-lg border border-border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left font-medium">ID</th>
+                    <th className="px-4 py-2.5 text-left font-medium">Location</th>
+                    <th className="px-4 py-2.5 text-left font-medium">Capabilities</th>
+                    <th className="px-4 py-2.5 text-right font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border bg-card">
+                  {voiceNodes.filter(n => !n.confirmed).map(node => (
+                    <tr key={node.id} className="hover:bg-muted/40 transition-colors">
+                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{node.id}</td>
+                      <td className="px-4 py-3">{node.location}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{node.capabilities.join(", ")}</td>
+                      <td className="px-4 py-3 text-right">
+                        <Button size="sm" onClick={async () => {
+                          await apiFetch(`/api/voice-nodes/${node.id}`, {
+                            method: "PUT",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ confirmed: true }),
+                          });
+                          await load();
+                        }}>Confirm</Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Confirmed nodes */}
+        {voiceNodes.filter(n => n.confirmed).length === 0 ? (
+          <p className="text-sm text-muted-foreground">No confirmed Voice Nodes yet.</p>
+        ) : (
+          <div className="rounded-lg border border-border overflow-hidden mb-4">
+            <table className="w-full text-sm">
+              <thead className="bg-muted text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-2.5 text-left font-medium">Label</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Location</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Capabilities</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Status</th>
+                  <th className="px-4 py-2.5 text-right font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border bg-card">
+                {voiceNodes.filter(n => n.confirmed).map(node => (
+                  <tr key={node.id} className="hover:bg-muted/40 transition-colors">
+                    <td className="px-4 py-3 font-medium">{node.label}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{node.location}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{node.capabilities.join(", ")}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${node.online ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"}`}>
+                        {node.online ? "online" : "offline"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Button variant="destructive" size="icon-sm" onClick={async () => {
+                        await apiFetch(`/api/voice-nodes/${node.id}`, { method: "DELETE" });
+                        await load();
+                      }} aria-label={`Delete ${node.label}`}><Trash2 /></Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Default output node selector */}
+        <div className="flex items-center gap-3 mt-2">
+          <label className="text-sm text-muted-foreground whitespace-nowrap">Default output node:</label>
+          <select
+            className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+            value={config.defaultOutputNodeId ?? ""}
+            onChange={async (e) => {
+              const updated = await apiFetch<AppConfig>("/api/config", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ autoDiscovery: config.autoDiscovery, defaultOutputNodeId: e.target.value || undefined }),
+              });
+              setConfig(updated);
+            }}
+          >
+            <option value="">None</option>
+            {voiceNodes.filter(n => n.confirmed && n.capabilities.includes("speaker")).map(n => (
+              <option key={n.id} value={n.id}>{n.label} ({n.location})</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       {/* Automations */}
       <div className="flex items-center justify-between mb-4 mt-10">
         <h1 className="text-2xl font-semibold text-foreground">Automations</h1>
@@ -682,6 +817,64 @@ export default function App() {
           </table>
         </div>
       )}
+      {/* Logs */}
+      <div className="mt-10">
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl font-semibold text-foreground">Activity Log</h1>
+          <select
+            className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+            value={logFilter}
+            onChange={(e) => setLogFilter(e.target.value)}
+          >
+            <option value="">All</option>
+            <option value="directed-question">Directed Questions</option>
+            <option value="automation-firing">Automation Firings</option>
+          </select>
+        </div>
+
+        {logs.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No activity yet.</p>
+        ) : (
+          <div className="rounded-lg border border-border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-muted text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-2.5 text-left font-medium">Time</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Type</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Detail</th>
+                  <th className="px-4 py-2.5 text-left font-medium">Outcome</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border bg-card">
+                {logs.map((entry, i) => (
+                  <tr key={i} className="hover:bg-muted/40 transition-colors">
+                    <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap font-mono">
+                      {new Date(entry.timestamp).toLocaleTimeString()}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                        entry.type === "directed-question"
+                          ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                          : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                      }`}>
+                        {entry.type === "directed-question" ? "voice" : "automation"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground max-w-xs truncate">
+                      {entry.type === "directed-question"
+                        ? entry.transcript
+                        : `${entry.triggerTopic} → ${entry.actions.map(a => a.command).join(", ")}`}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {entry.type === "directed-question" ? entry.outcome : "fired"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

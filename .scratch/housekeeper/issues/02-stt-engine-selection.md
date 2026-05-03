@@ -1,4 +1,4 @@
-Status: done
+Status: wontfix
 
 # STT engine selection
 
@@ -12,6 +12,10 @@ Decide which STT library backs the `SpeechInput` port. The choice shapes the ada
 - [x] Decision made on criteria: latency, CPU usage, TypeScript integration complexity
 - [x] ADR written at `docs/adr/0003-stt-engine.md`
 - [x] Chosen engine added to devenv.sh as a dependency
+
+## Superseded
+
+ADR 0004 (distributed Voice Nodes) moves STT to edge devices. Server no longer owns STT. ADR 0003 is superseded. See `docs/voice-node-project-reference.md` for STT guidance in the separate Pi project.
 
 ## Blocked by
 
