@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import type { ClassifiedIntent, Device, DeviceRepository } from "../ports.js";
+import type { ClassifiedIntent, Device, DeviceRepository, ConfigRepository } from "../ports.js";
 import { makeOpenAIIntentClassifier } from "./openai-intent-classifier.js";
 
 const endpoint = "http://localhost:11434/v1";
@@ -93,5 +93,85 @@ describe("OpenAIIntentClassifier", () => {
     const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
     const systemPrompt = body.messages[0].content as string;
     expect(systemPrompt).toContain("Jay prefers lights dim at night");
+  });
+
+  it("sends Authorization header when apiKey provided", async () => {
+    const fetchSpy = mockFetch({ choices: [{ message: { content: JSON.stringify({ type: "unknown" }) } }] });
+
+    const classifier = makeOpenAIIntentClassifier({ endpoint, model, devices: makeDeviceRepo([]), apiKey: "sk-test-123" });
+    await classifier.classify("something");
+
+    const headers = (fetchSpy.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe("Bearer sk-test-123");
+  });
+
+  it("omits Authorization header when apiKey not provided", async () => {
+    const fetchSpy = mockFetch({ choices: [{ message: { content: JSON.stringify({ type: "unknown" }) } }] });
+
+    const classifier = makeOpenAIIntentClassifier({ endpoint, model, devices: makeDeviceRepo([]) });
+    await classifier.classify("something");
+
+    const headers = (fetchSpy.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
+    expect(headers["Authorization"]).toBeUndefined();
+  });
+
+  it("prepends persona to system prompt", async () => {
+    const fetchSpy = mockFetch({ choices: [{ message: { content: JSON.stringify({ type: "unknown" }) } }] });
+
+    const classifier = makeOpenAIIntentClassifier({
+      endpoint,
+      model,
+      devices: makeDeviceRepo([]),
+      persona: "You are a helpful assistant.",
+    });
+    await classifier.classify("something");
+
+    const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
+    const systemPrompt = body.messages[0].content as string;
+    expect(systemPrompt.indexOf("You are a helpful assistant.")).toBe(0);
+  });
+
+  it("replaces {SYSTEM_NAME} placeholder in persona", async () => {
+    const fetchSpy = mockFetch({ choices: [{ message: { content: JSON.stringify({ type: "unknown" }) } }] });
+
+    const classifier = makeOpenAIIntentClassifier({
+      endpoint,
+      model,
+      devices: makeDeviceRepo([]),
+      persona: "You are {SYSTEM_NAME}, a smart home assistant.",
+      systemName: "Housekeeper",
+    });
+    await classifier.classify("something");
+
+    const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
+    const systemPrompt = body.messages[0].content as string;
+    expect(systemPrompt).toContain("You are Housekeeper, a smart home assistant.");
+    expect(systemPrompt).not.toContain("{SYSTEM_NAME}");
+  });
+
+  it("reads persona and systemName from config repository when provided", async () => {
+    const fetchSpy = mockFetch({ choices: [{ message: { content: JSON.stringify({ type: "unknown" }) } }] });
+
+    const mockConfigRepo = {
+      get: async () => ({
+        autoDiscovery: false,
+        persona: "Custom persona from config.",
+        systemName: "Jarvis",
+      }),
+      save: async () => {},
+    };
+
+    const classifier = makeOpenAIIntentClassifier({
+      endpoint,
+      model,
+      devices: makeDeviceRepo([]),
+      config: mockConfigRepo,
+    });
+    await classifier.classify("something");
+
+    const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
+    const systemPrompt = body.messages[0].content as string;
+    expect(systemPrompt.indexOf("Custom persona from config.")).toBe(0);
+    expect(systemPrompt).not.toContain("{SYSTEM_NAME}");
   });
 });

@@ -2,6 +2,7 @@ import type { ClassifiedIntent } from "./ports.js";
 
 export type DirectedQuestionOutcome =
   | "automation-created"
+  | "device-controlled"
   | "duplicate-automation"
   | "unknown-device"
   | "unknown-intent"

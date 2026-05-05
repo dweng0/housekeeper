@@ -1,0 +1,166 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e7]:
+      - link "NixOS logo" [ref=e8] [cursor=pointer]:
+        - /url: https://nixos.org
+        - img "NixOS logo" [ref=e9]
+      - list [ref=e10]:
+        - listitem [ref=e11]:
+          - link "Back to nixos.org" [ref=e12] [cursor=pointer]:
+            - /url: https://nixos.org
+        - listitem [ref=e13]:
+          - link "Packages" [ref=e14] [cursor=pointer]:
+            - /url: /packages?channel=25.11&query=zigbee2mqtt
+        - listitem [ref=e15]:
+          - link "Options" [ref=e16] [cursor=pointer]:
+            - /url: /options?channel=25.11&query=zigbee2mqtt
+        - listitem [ref=e17]:
+          - link "3rd-party Flakes" [ref=e18] [cursor=pointer]:
+            - /url: /flakes?channel=25.11&query=zigbee2mqtt
+        - listitem [ref=e19]:
+          - link "Functions" [ref=e20] [cursor=pointer]:
+            - /url: https://noogle.dev
+        - listitem [ref=e21]:
+          - link "NixOS Wiki" [ref=e22] [cursor=pointer]:
+            - /url: https://wiki.nixos.org
+  - generic [ref=e23]:
+    - generic [ref=e25]:
+      - heading "⌕ Search more than 120 000 packages" [level=1] [ref=e26]:
+        - text: ⌕ Search more than
+        - strong [ref=e27]: 120 000 packages
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - textbox "Search for packages" [active] [ref=e31]: zigbee2mqtt
+          - button "Search" [ref=e32] [cursor=pointer]
+        - generic [ref=e34]:
+          - heading "Channel:" [level=2] [ref=e35]
+          - generic [ref=e36]:
+            - button "25.11" [ref=e37] [cursor=pointer]
+            - button "unstable" [ref=e38] [cursor=pointer]
+      - generic [ref=e44]:
+        - list [ref=e45]:
+          - listitem [ref=e46]:
+            - list [ref=e47]:
+              - listitem [ref=e48]: Package sets
+              - listitem [ref=e49]:
+                - link "home-assistant-custom-lovelace-modules 1" [ref=e50] [cursor=pointer]:
+                  - /url: "#"
+                  - generic [ref=e51]: home-assistant-custom-lovelace-modules
+                  - generic [ref=e53]: "1"
+              - listitem [ref=e54]:
+                - link "No package set 1" [ref=e55] [cursor=pointer]:
+                  - /url: "#"
+                  - generic [ref=e56]: No package set
+                  - generic [ref=e58]: "1"
+          - listitem [ref=e59]:
+            - list [ref=e60]:
+              - listitem [ref=e61]: Licenses
+              - listitem [ref=e62]:
+                - link "MIT License 1" [ref=e63] [cursor=pointer]:
+                  - /url: "#"
+                  - generic [ref=e64]: MIT License
+                  - generic [ref=e66]: "1"
+              - listitem [ref=e67]:
+                - link "GNU General Public License v3.0 1" [ref=e68] [cursor=pointer]:
+                  - /url: "#"
+                  - generic [ref=e69]: GNU General Public License v3.0
+                  - generic [ref=e71]: "1"
+          - listitem [ref=e72]:
+            - list [ref=e73]:
+              - listitem [ref=e74]: Maintainers
+              - listitem [ref=e75]:
+                - link "Zhong Jianxin 1" [ref=e76] [cursor=pointer]:
+                  - /url: "#"
+                  - generic [ref=e77]: Zhong Jianxin
+                  - generic [ref=e79]: "1"
+              - listitem [ref=e80]:
+                - link "Simon Weber 1" [ref=e81] [cursor=pointer]:
+                  - /url: "#"
+                  - generic [ref=e82]: Simon Weber
+                  - generic [ref=e84]: "1"
+              - listitem [ref=e85]:
+                - link "Martin Weinelt 1" [ref=e86] [cursor=pointer]:
+                  - /url: "#"
+                  - generic [ref=e87]: Martin Weinelt
+                  - generic [ref=e89]: "1"
+        - generic [ref=e90]:
+          - generic [ref=e91]:
+            - generic [ref=e92]:
+              - 'button "Sort: Best match" [ref=e93] [cursor=pointer]': "Sort: Best match"
+              - text: ✔
+            - heading "Showing results 1-2 of 2 packages." [level=2] [ref=e95]:
+              - text: Showing results 1-2 of
+              - strong [ref=e96]: 2 packages
+              - text: .
+            - text: Data from nixpkgs
+            - link "26ef669c" [ref=e97] [cursor=pointer]:
+              - /url: https://github.com/NixOS/nixpkgs/tree/26ef669cffa904b6f6832ab57b77892a37c1a671
+              - code [ref=e98]: 26ef669c
+            - text: .
+          - list [ref=e99]:
+            - listitem [ref=e100]:
+              - link "zigbee2mqtt" [ref=e102] [cursor=pointer]:
+                - /url: ""
+              - generic [ref=e103]: Zigbee to MQTT bridge using zigbee-shepherd
+              - list [ref=e104]:
+                - listitem [ref=e105]:
+                  - text: "Name:"
+                  - code [ref=e106]: zigbee2mqtt
+                - listitem [ref=e107]:
+                  - text: "Version:"
+                  - strong [ref=e108]: 2.6.3
+                - listitem [ref=e109]:
+                  - link "🌐 Homepage" [ref=e110] [cursor=pointer]:
+                    - /url: https://github.com/Koenkk/zigbee2mqtt
+                - listitem [ref=e111]:
+                  - link "📦 Source" [ref=e112] [cursor=pointer]:
+                    - /url: https://github.com/NixOS/nixpkgs/blob/nixos-25.11/pkgs/by-name/zi/zigbee2mqtt/package.nix#L59
+                - listitem [ref=e113]:
+                  - text: "License:"
+                  - link "GNU General Public License v3.0" [ref=e114] [cursor=pointer]:
+                    - /url: https://spdx.org/licenses/GPL-3.0.html
+              - link "▾▾▾ Show more package details ▾▾▾" [ref=e116] [cursor=pointer]:
+                - /url: "#"
+            - listitem [ref=e117]:
+              - link "home-assistant-custom-lovelace-modules.zigbee2mqtt-networkmap" [ref=e119] [cursor=pointer]:
+                - /url: ""
+              - generic [ref=e120]: Home Assistant Custom Card to show Zigbee2mqtt network map
+              - list [ref=e121]:
+                - listitem [ref=e122]:
+                  - text: "Name:"
+                  - code [ref=e123]: zigbee2mqtt-networkmap
+                - listitem [ref=e124]:
+                  - text: "Version:"
+                  - strong [ref=e125]: 0.10.0
+                - listitem [ref=e126]:
+                  - link "🌐 Homepage" [ref=e127] [cursor=pointer]:
+                    - /url: https://github.com/azuwis/zigbee2mqtt-networkmap
+                - listitem [ref=e128]:
+                  - link "📦 Source" [ref=e129] [cursor=pointer]:
+                    - /url: https://github.com/NixOS/nixpkgs/blob/nixos-25.11/pkgs/servers/home-assistant/custom-lovelace-modules/zigbee2mqtt-networkmap/package.nix#L50
+                - listitem [ref=e130]:
+                  - text: "License:"
+                  - link "MIT License" [ref=e131] [cursor=pointer]:
+                    - /url: https://spdx.org/licenses/MIT.html
+              - link "▾▾▾ Show more package details ▾▾▾" [ref=e133] [cursor=pointer]:
+                - /url: "#"
+          - list [ref=e135]:
+            - listitem [ref=e136]:
+              - button "First" [disabled] [ref=e137]
+            - listitem [ref=e138]:
+              - button "Previous" [disabled] [ref=e139]
+            - listitem [ref=e140]:
+              - button "Next" [disabled] [ref=e141]
+            - listitem [ref=e142]:
+              - button "Last" [disabled] [ref=e143]
+    - contentinfo [ref=e39]:
+      - generic [ref=e40]:
+        - text: Please help us improve the search by
+        - link "reporting issues" [ref=e41] [cursor=pointer]:
+          - /url: https://github.com/NixOS/nixos-search/issues
+        - text: .
+      - generic [ref=e42]:
+        - text: ❤️ Elasticsearch instance graciously provided by
+        - link "Bonsai" [ref=e43] [cursor=pointer]:
+          - /url: https://bonsai.io
+        - text: . Thank you! ❤️

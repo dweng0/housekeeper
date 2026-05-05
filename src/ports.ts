@@ -58,7 +58,8 @@ export interface ConfigRepository {
 export interface AutoDiscoveryService {
   start(): void;
   stop(): void;
-  getUnregisteredTopics(): string[];
+  onDeviceDiscovered(handler: (device: Device) => void): void;
+  onDeviceRemoved(handler: (topic: string) => void): void;
 }
 
 export interface MemoryStore {
@@ -89,6 +90,7 @@ export interface Device {
   label: string;
   topic: string;
   type: "sensor" | "actuator";
+  commandMap?: Record<string, string>;
 }
 
 export interface Automation {
@@ -113,11 +115,16 @@ export interface Action {
 export interface AppConfig {
   autoDiscovery: boolean;
   defaultOutputNodeId?: string;
+  systemName?: string;
+  persona?: string;
+  mqttBrokerUrl?: string;
 }
 
 export interface ClassifiedIntent {
-  type: "create-automation" | "query" | "set-resident" | "unknown";
+  type: "create-automation" | "device-control" | "query" | "set-resident" | "unknown";
   automation?: Omit<Automation, "id">;
+  deviceLabel?: string;
+  command?: string;
   query?: string;
   residentName?: string;
 }

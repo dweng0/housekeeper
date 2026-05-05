@@ -1,21 +1,19 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Pencil, Trash2, Plus, Tag } from "lucide-react";
+import { Pencil, Trash2, Plus } from "lucide-react";
 
 interface Device {
   id: string;
   label: string;
   topic: string;
   type: "sensor" | "actuator";
-}
-
-interface UnregisteredDevice {
-  topic: string;
+  commandMap?: Record<string, string>;
 }
 
 interface AppConfig {
-  autoDiscovery: boolean;
   defaultOutputNodeId?: string;
+  systemName?: string;
+  persona?: string;
 }
 
 interface VoiceNode {
@@ -43,6 +41,7 @@ type FormState = {
   label: string;
   topic: string;
   type: "sensor" | "actuator";
+  commandMap: Record<string, string>;
 };
 
 type AutomationFormState = {
@@ -56,7 +55,7 @@ type AutomationFormState = {
   reverseCommand: string;
 };
 
-const EMPTY_FORM: FormState = { id: null, label: "", topic: "", type: "sensor" };
+const EMPTY_FORM: FormState = { id: null, label: "", topic: "", type: "sensor", commandMap: {} };
 const EMPTY_AUTOMATION_FORM: AutomationFormState = {
   id: null, enabled: true, triggerLabel: "", triggerEvent: "", actionLabel: "", actionCommand: "", durationSeconds: "", reverseCommand: ""
 };
@@ -70,31 +69,28 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 export default function App() {
   const [devices, setDevices] = useState<Device[]>([]);
-  const [unregistered, setUnregistered] = useState<UnregisteredDevice[]>([]);
-  const [config, setConfig] = useState<AppConfig>({ autoDiscovery: false });
+  const [config, setConfig] = useState<AppConfig>({});
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [voiceNodes, setVoiceNodes] = useState<VoiceNode[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [logFilter, setLogFilter] = useState<string>("");
   const [form, setForm] = useState<FormState | null>(null);
   const [automationForm, setAutomationForm] = useState<AutomationFormState | null>(null);
-  const [labelForm, setLabelForm] = useState<{ topic: string; label: string; type: "sensor" | "actuator" } | null>(null);
   const [voiceNodeEditForm, setVoiceNodeEditForm] = useState<{ id: string; label: string; location: string } | null>(null);
+  const [personaForm, setPersonaForm] = useState<{ persona: string; systemName: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [automationError, setAutomationError] = useState<string | null>(null);
-  const [labelError, setLabelError] = useState<string | null>(null);
+  const [personaError, setPersonaError] = useState<string | null>(null);
 
   async function load() {
-    const [data, cfg, unrg, autos, nodes] = await Promise.all([
+    const [data, cfg, autos, nodes] = await Promise.all([
       apiFetch<Device[]>("/api/devices"),
       apiFetch<AppConfig>("/api/config"),
-      apiFetch<UnregisteredDevice[]>("/api/unregistered-devices"),
       apiFetch<Automation[]>("/api/automations"),
       apiFetch<VoiceNode[]>("/api/voice-nodes"),
     ]);
     setDevices(data);
     setConfig(cfg);
-    setUnregistered(unrg);
     setAutomations(autos);
     setVoiceNodes(nodes);
   }
@@ -108,33 +104,47 @@ export default function App() {
   useEffect(() => { load(); }, []);
   useEffect(() => { loadLogs(); const t = setInterval(loadLogs, 4000); return () => clearInterval(t); }, [logFilter]);
 
-  async function toggleAutoDiscovery() {
-    const updated = await apiFetch<AppConfig>("/api/config", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ autoDiscovery: !config.autoDiscovery, defaultOutputNodeId: config.defaultOutputNodeId }),
-    });
-    setConfig(updated);
-    if (!updated.autoDiscovery) setUnregistered([]);
-    else {
-      const unrg = await apiFetch<UnregisteredDevice[]>("/api/unregistered-devices");
-      setUnregistered(unrg);
-    }
-  }
-
   function openCreate() {
     setForm(EMPTY_FORM);
     setError(null);
   }
 
   function openEdit(device: Device) {
-    setForm({ id: device.id, label: device.label, topic: device.topic, type: device.type });
+    setForm({ id: device.id, label: device.label, topic: device.topic, type: device.type, commandMap: device.commandMap ?? {} });
     setError(null);
   }
 
-  function openLabel(topic: string) {
-    setLabelForm({ topic, label: "", type: "sensor" });
-    setLabelError(null);
+  function openEditPersona() {
+    setPersonaForm({
+      persona: config.persona ?? "",
+      systemName: config.systemName ?? "",
+    });
+    setPersonaError(null);
+  }
+
+  async function handlePersonaSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!personaForm) return;
+    if (!personaForm.systemName.trim()) {
+      setPersonaError("System name is required");
+      return;
+    }
+    setPersonaError(null);
+    try {
+      const updated = await apiFetch<AppConfig>("/api/config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          defaultOutputNodeId: config.defaultOutputNodeId,
+          systemName: personaForm.systemName,
+          persona: personaForm.persona,
+        }),
+      });
+      setConfig(updated);
+      setPersonaForm(null);
+    } catch (err) {
+      setPersonaError(err instanceof Error ? err.message : "Request failed");
+    }
   }
 
   function openCreateAutomation() {
@@ -188,17 +198,18 @@ export default function App() {
     }
     setError(null);
     try {
+      const body = { label: form.label, topic: form.topic, type: form.type, commandMap: Object.keys(form.commandMap).length > 0 ? form.commandMap : undefined };
       if (form.id) {
         await apiFetch<Device>(`/api/devices/${form.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ label: form.label, topic: form.topic, type: form.type }),
+          body: JSON.stringify(body),
         });
       } else {
         await apiFetch<Device>("/api/devices", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ label: form.label, topic: form.topic, type: form.type }),
+          body: JSON.stringify(body),
         });
       }
       setForm(null);
@@ -247,136 +258,63 @@ export default function App() {
     }
   }
 
-  async function handleLabelSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!labelForm) return;
-    if (!labelForm.label.trim()) {
-      setLabelError("Label is required");
-      return;
-    }
-    setLabelError(null);
-    try {
-      await apiFetch<Device>("/api/devices", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ label: labelForm.label, topic: labelForm.topic, type: labelForm.type }),
-      });
-      setLabelForm(null);
-      await load();
-    } catch (err) {
-      setLabelError(err instanceof Error ? err.message : "Request failed");
-    }
-  }
-
   return (
     <div className="mx-auto max-w-4xl px-6 py-10 text-left">
-      {/* Auto-discovery toggle */}
-      <div className="flex items-center justify-between mb-8 rounded-lg border border-border bg-card px-5 py-4">
-        <div>
-          <p className="text-sm font-medium text-card-foreground">Auto-discovery</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Watch MQTT broker for new topics and surface unregistered Devices
-          </p>
+      {/* Assistant Settings */}
+      <div className="mb-8 rounded-lg border border-border bg-card px-5 py-4">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-sm font-medium text-card-foreground">Assistant Settings</p>
+          <Button variant="ghost" size="icon-sm" onClick={openEditPersona} aria-label="Edit assistant settings">
+            <Pencil />
+          </Button>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={config.autoDiscovery}
-          onClick={toggleAutoDiscovery}
-          className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-ring ${
-            config.autoDiscovery ? "bg-primary" : "bg-muted"
-          }`}
-        >
-          <span
-            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
-              config.autoDiscovery ? "translate-x-5" : "translate-x-0"
-            }`}
-          />
-        </button>
+        <div className="text-xs text-muted-foreground">
+          <p>System name: <span className="font-medium">{config.systemName ?? "housekeeper"}</span></p>
+          <p className="mt-1 truncate">Persona: <span className="font-medium">{config.persona?.substring(0, 60) ?? "You are a friendly and helpful smart home assistant..."}{config.persona && config.persona.length > 60 && "..."}</span></p>
+        </div>
       </div>
 
-      {/* Unregistered devices */}
-      {config.autoDiscovery && unregistered.length > 0 && (
-        <div className="mb-8">
-          <h2 className="text-base font-medium text-foreground mb-3">
-            Unregistered Devices
-            <span className="ml-2 text-xs font-normal text-muted-foreground">
-              ({unregistered.length} new topic{unregistered.length !== 1 ? "s" : ""} seen)
-            </span>
-          </h2>
+      {personaForm && (
+        <form
+          onSubmit={handlePersonaSubmit}
+          className="mb-8 rounded-lg border border-border bg-card p-5 space-y-4"
+        >
+          <h2 className="text-base font-medium text-card-foreground">Edit Assistant Settings</h2>
 
-          {labelForm && (
-            <form
-              onSubmit={handleLabelSubmit}
-              className="mb-4 rounded-lg border border-border bg-card p-4 space-y-3"
-            >
-              <p className="text-xs text-muted-foreground font-mono">{labelForm.topic}</p>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="flex flex-col gap-1">
-                  <label className="text-sm text-muted-foreground" htmlFor="unreg-label">
-                    Label <span className="text-destructive">*</span>
-                  </label>
-                  <input
-                    id="unreg-label"
-                    className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
-                    value={labelForm.label}
-                    onChange={(e) => setLabelForm({ ...labelForm, label: e.target.value })}
-                    placeholder="Hallway sensor"
-                    autoFocus
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-sm text-muted-foreground" htmlFor="unreg-type">
-                    Type
-                  </label>
-                  <select
-                    id="unreg-type"
-                    className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
-                    value={labelForm.type}
-                    onChange={(e) => setLabelForm({ ...labelForm, type: e.target.value as "sensor" | "actuator" })}
-                  >
-                    <option value="sensor">Sensor</option>
-                    <option value="actuator">Actuator</option>
-                  </select>
-                </div>
-              </div>
-              {labelError && <p className="text-sm text-destructive">{labelError}</p>}
-              <div className="flex gap-2">
-                <Button type="submit" size="sm">Register</Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => setLabelForm(null)}>Cancel</Button>
-              </div>
-            </form>
-          )}
-
-          <div className="rounded-lg border border-border overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-muted text-muted-foreground">
-                <tr>
-                  <th className="px-4 py-2.5 text-left font-medium">MQTT Topic</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border bg-card">
-                {unregistered.map((u) => (
-                  <tr key={u.topic} className="hover:bg-muted/40 transition-colors">
-                    <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{u.topic}</td>
-                    <td className="px-4 py-3 text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => openLabel(u.topic)}
-                        aria-label={`Assign label to ${u.topic}`}
-                      >
-                        <Tag className="mr-1 h-3 w-3" />
-                        Assign Label
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="flex flex-col gap-1">
+            <label className="text-sm text-muted-foreground" htmlFor="systemName">
+              System Name <span className="text-destructive">*</span>
+            </label>
+            <input
+              id="systemName"
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+              value={personaForm.systemName}
+              onChange={(e) => setPersonaForm({ ...personaForm, systemName: e.target.value })}
+              placeholder="housekeeper"
+            />
           </div>
-        </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-sm text-muted-foreground" htmlFor="persona">
+              Persona
+            </label>
+            <textarea
+              id="persona"
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring min-h-32"
+              value={personaForm.persona}
+              onChange={(e) => setPersonaForm({ ...personaForm, persona: e.target.value })}
+              placeholder="You are a friendly and helpful smart home assistant..."
+            />
+            <p className="text-xs text-muted-foreground">Use {'{SYSTEM_NAME}'} as a placeholder for the system name</p>
+          </div>
+
+          {personaError && <p className="text-sm text-destructive">{personaError}</p>}
+
+          <div className="flex gap-2">
+            <Button type="submit" size="sm">Save</Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => setPersonaForm(null)}>Cancel</Button>
+          </div>
+        </form>
       )}
 
       {/* Registered devices */}
@@ -438,6 +376,52 @@ export default function App() {
                 <option value="actuator">Actuator</option>
               </select>
             </div>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-sm text-muted-foreground">Command Map</label>
+            {Object.entries(form.commandMap).map(([key, value]) => (
+              <div key={key} className="flex gap-2 items-center">
+                <input
+                  className="w-28 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+                  value={key}
+                  readOnly
+                  placeholder="command"
+                />
+                <span className="text-muted-foreground">→</span>
+                <input
+                  className="w-28 rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
+                  value={value}
+                  onChange={(e) => setForm({ ...form, commandMap: { ...form.commandMap, [key]: e.target.value } })}
+                  placeholder="payload"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const { [key]: _, ...rest } = form.commandMap;
+                    setForm({ ...form, commandMap: rest });
+                  }}
+                >
+                  Remove
+                </Button>
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-fit"
+              onClick={() => {
+                const newKey = prompt("Command name (e.g. on, off):");
+                if (newKey && !form.commandMap[newKey]) {
+                  setForm({ ...form, commandMap: { ...form.commandMap, [newKey]: "" } });
+                }
+              }}
+            >
+              + Add entry
+            </Button>
           </div>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
@@ -651,7 +635,7 @@ export default function App() {
               const updated = await apiFetch<AppConfig>("/api/config", {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ autoDiscovery: config.autoDiscovery, defaultOutputNodeId: e.target.value || undefined }),
+                body: JSON.stringify({ defaultOutputNodeId: e.target.value || undefined }),
               });
               setConfig(updated);
             }}

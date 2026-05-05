@@ -3,11 +3,12 @@ import { join } from "path";
 import { randomUUID } from "crypto";
 import { jsonDeviceRepository } from "./device/json-device-repository.js";
 import { jsonConfigRepository } from "./config/json-config-repository.js";
-import { createAutoDiscoveryService } from "./device/auto-discovery-service.js";
+import { createZigbee2MqttDiscoveryService } from "./device/zigbee2mqtt-discovery-service.js";
 import { makeJsonAutomationRepository } from "./automation/json-automation-repository.js";
 import { makeAutomationRouter } from "./automation/automation-router.js";
 import { makeAutomationEngine } from "./automation/automation-engine.js";
-import { mqttDeviceGateway } from "./mqtt/mqtt-device-gateway.js";
+import { createMqttClient } from "./mqtt/mqtt-client.js";
+import { createZigbee2MqttGateway } from "./mqtt/zigbee2mqtt-gateway.js";
 import { makeWebSocketVoiceNodeHub } from "./voice/websocket-voice-node-hub.js";
 import { makeJsonVoiceNodeRepository } from "./voice/json-voice-node-repository.js";
 import { makeVoiceNodeRouter } from "./voice/voice-node-router.js";
@@ -22,7 +23,18 @@ const port = Number(process.env.PORT ?? 3000);
 
 app.use(express.json());
 
-const discovery = createAutoDiscoveryService(jsonDeviceRepository);
+const appConfig = await jsonConfigRepository.get();
+const mqttClient = createMqttClient(appConfig.mqttBrokerUrl ?? "mqtt://localhost:1883");
+const mqttDeviceGateway = createZigbee2MqttGateway(mqttClient);
+const discovery = createZigbee2MqttDiscoveryService(mqttClient);
+discovery.onDeviceDiscovered(async (device) => {
+  await jsonDeviceRepository.save(device);
+});
+discovery.onDeviceRemoved(async (topic) => {
+  const all = await jsonDeviceRepository.findAll();
+  const match = all.find((d) => d.topic === topic);
+  if (match) await jsonDeviceRepository.delete(match.id);
+});
 
 const automationDataPath = join(process.cwd(), "data", "automations.json");
 const automationRepository = makeJsonAutomationRepository(
@@ -50,7 +62,9 @@ const voiceNodeHub = makeWebSocketVoiceNodeHub(voiceNodeRepository, voiceNodePor
 const classifier = makeOpenAIIntentClassifier({
   endpoint: process.env.LLM_ENDPOINT ?? "http://localhost:11434/v1",
   model: process.env.LLM_MODEL ?? "llama3.2",
+  apiKey: process.env.LLM_API_KEY,
   devices: jsonDeviceRepository,
+  config: jsonConfigRepository,
 });
 
 const piperVoice = process.env.PIPER_VOICE ?? "data/piper-voices/en_US-lessac-medium.onnx";
@@ -67,21 +81,12 @@ const voiceService = makeVoiceAutomationService({
   devices: jsonDeviceRepository,
   automations: automationRepository,
   speechOutput,
+  gateway: mqttDeviceGateway,
   logStore,
 });
 
 voiceService.start();
-
-async function syncDiscovery(config: AppConfig) {
-  if (config.autoDiscovery) {
-    discovery.start();
-  } else {
-    discovery.stop();
-  }
-}
-
-// Boot: apply persisted config
-jsonConfigRepository.get().then(syncDiscovery);
+discovery.start();
 
 app.get("/health", (_req, res) => {
   res.json({
@@ -109,28 +114,13 @@ app.get("/api/config", async (_req, res) => {
 
 app.put("/api/config", async (req, res) => {
   const current = await jsonConfigRepository.get();
-  const { autoDiscovery, defaultOutputNodeId } = req.body as Partial<AppConfig>;
-  if (typeof autoDiscovery !== "boolean") {
-    res.status(400).json({ error: "autoDiscovery must be a boolean" });
-    return;
-  }
-  const updated: AppConfig = { ...current, autoDiscovery, defaultOutputNodeId };
+  const { defaultOutputNodeId, systemName, persona } = req.body as Partial<AppConfig>;
+  const updated: AppConfig = { ...current, defaultOutputNodeId, systemName, persona };
   await jsonConfigRepository.save(updated);
-  await syncDiscovery(updated);
   res.json(updated);
 });
 
 // --- Unregistered devices (auto-discovery) ---
-
-app.get("/api/unregistered-devices", async (_req, res) => {
-  const config = await jsonConfigRepository.get();
-  if (!config.autoDiscovery) {
-    res.json([]);
-    return;
-  }
-  const topics = discovery.getUnregisteredTopics();
-  res.json(topics.map((topic) => ({ topic })));
-});
 
 // --- Automations ---
 

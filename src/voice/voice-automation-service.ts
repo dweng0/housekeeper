@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import type {
   AutomationRepository,
+  DeviceGateway,
   DeviceRepository,
   IntentClassifier,
   MemoryStore,
@@ -19,6 +20,7 @@ interface VoiceAutomationServiceDeps {
   devices: DeviceRepository;
   automations: AutomationRepository;
   speechOutput: SpeechOutput;
+  gateway?: DeviceGateway;
   logStore?: LogStore;
   session?: ResidentSession;
   memoryStore?: MemoryStore;
@@ -36,6 +38,7 @@ export function makeVoiceAutomationService({
   devices,
   automations,
   speechOutput,
+  gateway,
   logStore,
   session,
   memoryStore,
@@ -56,10 +59,26 @@ export function makeVoiceAutomationService({
               ? await memoryStore.search(residentId, transcript)
               : [];
             intent = await classifier.classify(transcript, residentId, memories);
+            console.log("[VoiceAutomation] Classified intent:", JSON.stringify(intent));
 
             if (intent.type === "set-resident" && intent.residentName) {
               session?.setActive(intent.residentName);
               outcome = "unknown-intent";
+            } else if (intent.type === "device-control") {
+              if (!intent.deviceLabel || !intent.command) {
+                outcome = "unknown-intent";
+              } else {
+                const device = await devices.findByLabel(intent.deviceLabel);
+                if (!device) {
+                  await speechOutput.speak(`I don't know a device called ${intent.deviceLabel}`, nodeId);
+                  outcome = "unknown-device";
+                } else {
+                  const resolvedCommand = device.commandMap?.[intent.command] ?? intent.command;
+                  await gateway?.publish(device.topic, resolvedCommand);
+                  await speechOutput.speak(`OK, turning ${intent.deviceLabel} ${intent.command}`, nodeId);
+                  outcome = "device-controlled";
+                }
+              }
             } else if (intent.type !== "create-automation" || !intent.automation) {
               outcome = "unknown-intent";
             } else {
@@ -125,6 +144,7 @@ export function makeVoiceAutomationService({
 
   return {
     start() {
+      console.log(`[VoiceAutomation] System name: "${systemName}"`);
       voiceNodeHub.onUtterance((nodeId, text) => {
         console.log(`[Heard] [${nodeId}]`, text);
         getWindow(nodeId).addUtterance(text);

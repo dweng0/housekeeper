@@ -4,6 +4,7 @@ import type {
   AutomationRepository,
   ClassifiedIntent,
   Device,
+  DeviceGateway,
   DeviceRepository,
   IntentClassifier,
   MemoryStore,
@@ -39,6 +40,7 @@ function makeVoiceNodeHub() {
     stop: vi.fn(),
     onUtterance: (h) => { handler = h; },
     sendTts: vi.fn(),
+    sendConfig: vi.fn(),
     getNode: vi.fn(),
     getConnectedNodes: vi.fn(() => []),
   };
@@ -74,6 +76,15 @@ function makeSpeechOutput() {
   const spoken: { text: string; nodeId: string }[] = [];
   const output: SpeechOutput = { speak: async (text, nodeId) => { spoken.push({ text, nodeId }); } };
   return { output, spoken };
+}
+
+function makeGateway() {
+  const published: { topic: string; payload: string }[] = [];
+  const gateway: DeviceGateway = {
+    publish: vi.fn(async (topic, payload) => { published.push({ topic, payload }); }),
+    subscribe: vi.fn(),
+  };
+  return { gateway, published };
 }
 
 describe("VoiceAutomationService", () => {
@@ -254,6 +265,81 @@ describe("VoiceAutomationService", () => {
     emit("housekeeper do something", "node-kitchen");
     emit("housekeeper do something", "node-hallway");
     await vi.waitFor(() => expect(classifySpy).toHaveBeenCalledTimes(2));
+  });
+
+  describe("device-control intent", () => {
+    it("publishes to gateway and speaks confirmation when device found", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output, spoken } = makeSpeechOutput();
+      const { gateway, published } = makeGateway();
+      const intent: ClassifiedIntent = { type: "device-control", deviceLabel: "Porch Light", command: "on" };
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: makeClassifier(intent),
+        devices: makeDeviceRepo([actuator]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        gateway,
+      });
+
+      service.start();
+      emit("housekeeper turn on the porch light");
+      await vi.waitFor(() => expect(published).toHaveLength(1));
+
+      expect(published[0].topic).toBe("home/porch-light");
+      expect(published[0].payload).toBe("on");
+      expect(spoken[0].nodeId).toBe(TEST_NODE_ID);
+    });
+
+    it("resolves command through commandMap before publishing", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output } = makeSpeechOutput();
+      const { gateway, published } = makeGateway();
+      const deviceWithMap: Device = { id: "d2", label: "Porch Light", topic: "home/porch-light", type: "actuator", commandMap: { on: "1", off: "0" } };
+      const intent: ClassifiedIntent = { type: "device-control", deviceLabel: "Porch Light", command: "on" };
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: makeClassifier(intent),
+        devices: makeDeviceRepo([deviceWithMap]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        gateway,
+      });
+
+      service.start();
+      emit("housekeeper turn on the porch light");
+      await vi.waitFor(() => expect(published).toHaveLength(1));
+
+      expect(published[0].payload).toBe("1");
+    });
+
+    it("speaks error and does not publish when device not found", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output, spoken } = makeSpeechOutput();
+      const { gateway, published } = makeGateway();
+      const intent: ClassifiedIntent = { type: "device-control", deviceLabel: "Nonexistent Light", command: "on" };
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: makeClassifier(intent),
+        devices: makeDeviceRepo([actuator]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        gateway,
+      });
+
+      service.start();
+      emit("housekeeper turn on the nonexistent light");
+      await vi.waitFor(() => expect(spoken).toHaveLength(1));
+
+      expect(published).toHaveLength(0);
+      expect(spoken[0].text).toMatch(/Nonexistent Light/i);
+    });
   });
 
   describe("Resident Session integration", () => {

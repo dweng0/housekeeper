@@ -1,0 +1,50 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e7]:
+      - link "NixOS logo" [ref=e8] [cursor=pointer]:
+        - /url: https://nixos.org
+        - img "NixOS logo" [ref=e9]
+      - list [ref=e10]:
+        - listitem [ref=e11]:
+          - link "Back to nixos.org" [ref=e12] [cursor=pointer]:
+            - /url: https://nixos.org
+        - listitem [ref=e13]:
+          - link "Packages" [ref=e14] [cursor=pointer]:
+            - /url: /packages
+        - listitem [ref=e15]:
+          - link "Options" [ref=e16] [cursor=pointer]:
+            - /url: /options
+        - listitem [ref=e17]:
+          - link "3rd-party Flakes" [ref=e18] [cursor=pointer]:
+            - /url: /flakes
+        - listitem [ref=e19]:
+          - link "Functions" [ref=e20] [cursor=pointer]:
+            - /url: https://noogle.dev
+        - listitem [ref=e21]:
+          - link "NixOS Wiki" [ref=e22] [cursor=pointer]:
+            - /url: https://wiki.nixos.org
+  - generic [ref=e23]:
+    - generic [ref=e25]:
+      - heading "⌕ Search more than 120 000 packages" [level=1] [ref=e26]:
+        - text: ⌕ Search more than
+        - strong [ref=e27]: 120 000 packages
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - textbox "Search for packages" [active] [ref=e31]
+          - button "Search" [ref=e32] [cursor=pointer]
+        - generic [ref=e34]:
+          - heading "Channel:" [level=2] [ref=e35]
+          - generic [ref=e36]:
+            - button "25.11" [ref=e37] [cursor=pointer]
+            - button "unstable" [ref=e38] [cursor=pointer]
+    - contentinfo [ref=e39]:
+      - generic [ref=e40]:
+        - text: Please help us improve the search by
+        - link "reporting issues" [ref=e41] [cursor=pointer]:
+          - /url: https://github.com/NixOS/nixos-search/issues
+        - text: .
+      - generic [ref=e42]:
+        - text: ❤️ Elasticsearch instance graciously provided by
+        - link "Bonsai" [ref=e43] [cursor=pointer]:
+          - /url: https://bonsai.io
+        - text: . Thank you! ❤️

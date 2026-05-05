@@ -1,0 +1,16 @@
+[2026-05-05 06:15:51] info: 	z2m: Logging to console, file (filename: log.log)
+[2026-05-05 06:15:51] info: 	z2m: Starting Zigbee2MQTT version 2.9.2 (commit #unknown)
+[2026-05-05 06:15:51] info: 	z2m: Starting zigbee-herdsman (10.0.5)
+[2026-05-05 06:15:51] error: 	z2m: Error while starting zigbee-herdsman
+[2026-05-05 06:15:51] error: 	z2m: Failed to start zigbee-herdsman
+[2026-05-05 06:15:51] error: 	z2m: Check https://www.zigbee2mqtt.io/guide/installation/20_zigbee2mqtt-fails-to-start_crashes-runtime.html for possible solutions
+[2026-05-05 06:15:51] error: 	z2m: Exiting...
+[2026-05-05 06:15:51] error: 	z2m: Error: USB adapter discovery error (No valid USB adapter found). Specify valid 'adapter' and 'port' in your configuration.
+    at discoverAdapter (/nix/store/lig5r0zl3kpb1xn8lly3yncyv0hx28yz-zigbee2mqtt-2.9.2/lib/node_modules/zigbee2mqtt/node_modules/.pnpm/zigbee-herdsman@10.0.5/node_modules/zigbee-herdsman/src/adapter/adapterDiscovery.ts:658:15)
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at Adapter.create (/nix/store/lig5r0zl3kpb1xn8lly3yncyv0hx28yz-zigbee2mqtt-2.9.2/lib/node_modules/zigbee2mqtt/node_modules/.pnpm/zigbee-herdsman@10.0.5/node_modules/zigbee-herdsman/src/adapter/adapter.ts:53:28)
+    at Controller.start (/nix/store/lig5r0zl3kpb1xn8lly3yncyv0hx28yz-zigbee2mqtt-2.9.2/lib/node_modules/zigbee2mqtt/node_modules/.pnpm/zigbee-herdsman@10.0.5/node_modules/zigbee-herdsman/src/controller/controller.ts:140:24)
+    at Zigbee.start (/nix/store/lig5r0zl3kpb1xn8lly3yncyv0hx28yz-zigbee2mqtt-2.9.2/lib/node_modules/zigbee2mqtt/lib/zigbee.ts:70:27)
+    at Controller.start (/nix/store/lig5r0zl3kpb1xn8lly3yncyv0hx28yz-zigbee2mqtt-2.9.2/lib/node_modules/zigbee2mqtt/lib/controller.ts:111:29)
+    at start (/nix/store/lig5r0zl3kpb1xn8lly3yncyv0hx28yz-zigbee2mqtt-2.9.2/lib/node_modules/zigbee2mqtt/index.js:156:5)
+[2026-05-05 06:15:51] error: 	z2m: If this happens after updating to Zigbee2MQTT 2.0.0, see https://github.com/Koenkk/zigbee2mqtt/discussions/24364

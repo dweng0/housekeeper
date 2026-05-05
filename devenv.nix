@@ -5,9 +5,12 @@
     pkgs.typescript
     pkgs.piper-tts
     pkgs.curl
+    pkgs.zigbee2mqtt
   ];
 
   languages.typescript.enable = true;
+
+  dotenv.enable = true;
 
   services.mosquitto = {
     enable = true;
@@ -23,6 +26,14 @@
 
   processes.ollama = {
     exec = "ollama serve";
+  };
+
+  processes.zigbee2mqtt = {
+    exec = ''
+      DATA_DIR="$PWD/data/zigbee2mqtt"
+      cd /tmp
+      ZIGBEE2MQTT_DATA="$DATA_DIR" ZIGBEE2MQTT_CONFIG_SERIAL_PORT="$ZIGBEE_PORT" zigbee2mqtt
+    '';
   };
 
   scripts.test-backend.exec = "npm test";
@@ -65,17 +76,20 @@
     printf "  frontend  http://localhost:5173\n"
     printf "  voice     ws://localhost:$VOICE_NODE_PORT\n"
     printf "  llm     $LLM_ENDPOINT ($LLM_MODEL)\n"
-    printf "  mqtt    $MQTT_HOST:$MQTT_PORT\033[0m\n\n"
+    printf "  mqtt    $MQTT_HOST:$MQTT_PORT\n"
+    printf "  z2m     http://localhost:8080\033[0m\n\n"
+    printf '\033[90m  zigbee dongle: '
+    ls /dev/ttyUSB* /dev/ttyACM* 2>/dev/null | tr '\n' ' ' || printf 'not found'
+    printf '\033[0m\n\n'
   '';
 
   env = {
     MQTT_HOST = "localhost";
     MQTT_PORT = "1883";
     VOICE_NODE_PORT = "3001";
-    LLM_ENDPOINT = "http://localhost:11434/v1";
-    LLM_MODEL = "llama3.2";
     PORT = "3000";
     PIPER_VOICE = "data/piper-voices/en_US-lessac-medium.onnx";
     SYSTEM_NAME = "housekeeper";
+    ZIGBEE_PORT = "/dev/ttyUSB0";
   };
 }
