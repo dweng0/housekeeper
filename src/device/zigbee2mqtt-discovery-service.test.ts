@@ -70,6 +70,55 @@ describe("Zigbee2MqttDiscoveryService", () => {
     expect(removed[0]).toBe("old-sensor");
   });
 
+  it("populates commandMap from binary exposes on bridge/devices", async () => {
+    const { client, emit } = makeClient();
+    const service = createZigbee2MqttDiscoveryService(client);
+    const discovered: import("../ports.js").Device[] = [];
+    service.onDeviceDiscovered((d) => discovered.push(d));
+    service.start();
+
+    emit("zigbee2mqtt/bridge/devices", JSON.stringify([
+      {
+        friendly_name: "porch-light",
+        exposes: [{
+          type: "binary",
+          name: "state",
+          value_on: "ON",
+          value_off: "OFF",
+          value_toggle: "TOGGLE",
+          access: 7,
+        }],
+      },
+    ]));
+
+    await vi.waitFor(() => expect(discovered).toHaveLength(1));
+    expect(discovered[0].commandMap).toEqual({ on: "ON", off: "OFF", toggle: "TOGGLE" });
+  });
+
+  it("populates commandMap from nested features (composite exposes)", async () => {
+    const { client, emit } = makeClient();
+    const service = createZigbee2MqttDiscoveryService(client);
+    const discovered: import("../ports.js").Device[] = [];
+    service.onDeviceDiscovered((d) => discovered.push(d));
+    service.start();
+
+    emit("zigbee2mqtt/bridge/devices", JSON.stringify([
+      {
+        friendly_name: "smart-light",
+        exposes: [{
+          type: "light",
+          features: [
+            { type: "binary", name: "state", value_on: "ON", value_off: "OFF", value_toggle: "TOGGLE", access: 7 },
+            { type: "numeric", name: "brightness", value_min: 0, value_max: 254, access: 7 },
+          ],
+        }],
+      },
+    ]));
+
+    await vi.waitFor(() => expect(discovered).toHaveLength(1));
+    expect(discovered[0].commandMap).toEqual({ on: "ON", off: "OFF", toggle: "TOGGLE" });
+  });
+
   it("subscribes to bridge/devices and bridge/event on start", () => {
     const { client, subscribed } = makeClient();
     const service = createZigbee2MqttDiscoveryService(client);

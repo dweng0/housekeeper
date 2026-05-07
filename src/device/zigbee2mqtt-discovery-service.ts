@@ -13,6 +13,24 @@ function inferType(exposes: unknown[]): "actuator" | "sensor" {
   return hasWritable(exposes) ? "actuator" : "sensor";
 }
 
+function extractCommandMap(exposes: unknown[]): Record<string, string> | undefined {
+  const map: Record<string, string> = {};
+
+  function walk(features: unknown[]): void {
+    for (const f of features as any[]) {
+      if (f.type === "binary") {
+        if (f.value_on)     map["on"]     = f.value_on;
+        if (f.value_off)    map["off"]    = f.value_off;
+        if (f.value_toggle) map["toggle"] = f.value_toggle;
+      }
+      if (Array.isArray(f.features)) walk(f.features);
+    }
+  }
+
+  walk(exposes);
+  return Object.keys(map).length > 0 ? map : undefined;
+}
+
 export type Zigbee2MqttDiscoveryService = AutoDiscoveryService;
 
 export function createZigbee2MqttDiscoveryService(client: SharedMqttClient): Zigbee2MqttDiscoveryService {
@@ -31,6 +49,7 @@ export function createZigbee2MqttDiscoveryService(client: SharedMqttClient): Zig
             label: d.friendly_name,
             topic: d.friendly_name,
             type: inferType(exposes),
+            commandMap: extractCommandMap(exposes),
           };
           discoveredHandlers.forEach((h) => h(device));
         }
@@ -45,6 +64,7 @@ export function createZigbee2MqttDiscoveryService(client: SharedMqttClient): Zig
             label: event.data.friendly_name,
             topic: event.data.friendly_name,
             type: inferType(exposes),
+            commandMap: extractCommandMap(exposes),
           };
           discoveredHandlers.forEach((h) => h(device));
         } else if (event.type === "device_left") {

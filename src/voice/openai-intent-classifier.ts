@@ -12,7 +12,7 @@ interface OpenAIClassifierOptions {
 
 const UNKNOWN: ClassifiedIntent = { type: "unknown" };
 
-function buildSystemPrompt(deviceLabels: string[], memories: string[], persona?: string, systemName?: string): string {
+function buildSystemPrompt(deviceLabels: string[], memories: string[], location?: string, persona?: string, systemName?: string): string {
   const labelList = deviceLabels.length > 0
     ? deviceLabels.map((l) => `- ${l}`).join("\n")
     : "(none registered)";
@@ -21,16 +21,18 @@ function buildSystemPrompt(deviceLabels: string[], memories: string[], persona?:
     ? `\n\nResident context:\n${memories.map((m) => `- ${m}`).join("\n")}`
     : "";
 
+  const locationSection = location ? `\nOriginating location: ${location}` : "";
+
   const basePrompt = `You are a home automation assistant. Parse spoken utterances into structured JSON.
 
 Known device labels:
-${labelList}${memorySection}
+${labelList}${memorySection}${locationSection}
 
 Return JSON matching one of these shapes:
-- { "type": "device-control", "deviceLabel": "<label>", "command": "<cmd>" }
-- { "type": "create-automation", "automation": { "enabled": true, "trigger": { "deviceLabel": "<label>", "event": "<event>" }, "actions": [{ "deviceLabel": "<label>", "command": "<cmd>", "durationSeconds": <n>, "reverseCommand": "<cmd>" }] } }
+- { "type": "device-control", "deviceLabel": "<label>", "command": "<cmd>", "response": "<spoken confirmation>", "residentName": "<name if identified>" }
+- { "type": "create-automation", "automation": { "enabled": true, "trigger": { "deviceLabel": "<label>", "event": "<event>" }, "actions": [{ "deviceLabel": "<label>", "command": "<cmd>", "durationSeconds": <n>, "reverseCommand": "<cmd>" }] }, "response": "<spoken confirmation>", "residentName": "<name if identified>" }
 - { "type": "query", "query": "<question>" }
-- { "type": "set-resident", "residentName": "<name>" }
+- { "type": "set-resident", "residentName": "<name>", "response": "<warm acknowledgement>" }
 - { "type": "unknown" }
 
 Use "device-control" for immediate commands to control devices (e.g. "turn on the kitchen light", "switch off the fan").
@@ -38,6 +40,8 @@ Use "create-automation" for setting up rules/triggers (e.g. "when the front door
 Use "set-resident" when the speaker identifies themselves (e.g. "this is Jay", "I'm Sarah").
 Use "unknown" if the utterance is not addressed to the assistant or intent is unclear.
 Only reference device labels from the known list above.
+For the "command" field use only: on, off, toggle, open, close, lock, unlock, brightness_up, brightness_down.
+The "response" field is spoken aloud — keep it brief, natural, and in character. If the utterance identifies a resident alongside an action, include "residentName" on that intent and address them by name in "response".
 Return only valid JSON, no markdown.`;
 
   if (!persona) return basePrompt;
@@ -51,7 +55,7 @@ Return only valid JSON, no markdown.`;
 
 export function makeOpenAIIntentClassifier(opts: OpenAIClassifierOptions): IntentClassifier {
   return {
-    async classify(utterance, _residentId, memories = []) {
+    async classify({ utterance, memories = [], location }) {
       try {
         const allDevices = await opts.devices.findAll();
         const deviceLabels = allDevices.map((d) => d.label);
@@ -74,7 +78,7 @@ export function makeOpenAIIntentClassifier(opts: OpenAIClassifierOptions): Inten
           body: JSON.stringify({
             model: opts.model,
             messages: [
-              { role: "system", content: buildSystemPrompt(deviceLabels, memories, persona, systemName) },
+              { role: "system", content: buildSystemPrompt(deviceLabels, memories, location, persona, systemName) },
               { role: "user", content: utterance },
             ],
             response_format: { type: "json_object" },

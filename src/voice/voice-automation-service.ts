@@ -58,11 +58,21 @@ export function makeVoiceAutomationService({
             const memories = memoryStore && residentId
               ? await memoryStore.search(residentId, transcript)
               : [];
-            intent = await classifier.classify(transcript, residentId, memories);
+            const originatingNode = voiceNodeHub.getNode(nodeId);
+            intent = await classifier.classify({
+              utterance: transcript,
+              residentId,
+              memories,
+              location: originatingNode?.location,
+            });
             console.log("[VoiceAutomation] Classified intent:", JSON.stringify(intent));
 
-            if (intent.type === "set-resident" && intent.residentName) {
+            if (intent.residentName) {
               session?.setActive(intent.residentName);
+            }
+
+            if (intent.type === "set-resident") {
+              if (intent.response) await speechOutput.speak(intent.response, nodeId);
               outcome = "unknown-intent";
             } else if (intent.type === "device-control") {
               if (!intent.deviceLabel || !intent.command) {
@@ -75,7 +85,7 @@ export function makeVoiceAutomationService({
                 } else {
                   const resolvedCommand = device.commandMap?.[intent.command] ?? intent.command;
                   await gateway?.publish(device.topic, resolvedCommand);
-                  await speechOutput.speak(`OK, turning ${intent.deviceLabel} ${intent.command}`, nodeId);
+                  if (intent.response) await speechOutput.speak(intent.response, nodeId);
                   outcome = "device-controlled";
                 }
               }
@@ -114,6 +124,7 @@ export function makeVoiceAutomationService({
                     outcome = "duplicate-automation";
                   } else {
                     await automations.save({ id: randomUUID(), enabled, trigger, actions });
+                    if (intent.response) await speechOutput.speak(intent.response, nodeId);
                     outcome = "automation-created";
                     if (memoryStore && residentId) {
                       const fact = `When ${trigger.deviceLabel} ${trigger.event}, ${actions.map((a) => `${a.command} ${a.deviceLabel}`).join(" and ")}`;

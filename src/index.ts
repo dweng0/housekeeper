@@ -12,6 +12,8 @@ import { createZigbee2MqttGateway } from "./mqtt/zigbee2mqtt-gateway.js";
 import { makeWebSocketVoiceNodeHub } from "./voice/websocket-voice-node-hub.js";
 import { makeJsonVoiceNodeRepository } from "./voice/json-voice-node-repository.js";
 import { makeVoiceNodeRouter } from "./voice/voice-node-router.js";
+import { makeTranscribeRouter } from "./voice/transcribe-router.js";
+import { WhisperTranscriber } from "./voice/whisper-transcriber.js";
 import { makeVoiceAutomationService } from "./voice/voice-automation-service.js";
 import { makeOpenAIIntentClassifier } from "./voice/openai-intent-classifier.js";
 import { PiperTtsAdapter } from "./voice/piper-tts-adapter.js";
@@ -132,6 +134,13 @@ app.use("/api/automations", makeAutomationRouter({
 // --- Voice Nodes ---
 
 app.use("/api/voice-nodes", makeVoiceNodeRouter({ voiceNodes: voiceNodeRepository, hub: voiceNodeHub }));
+app.use("/api/voice", makeTranscribeRouter({
+  transcriber: new WhisperTranscriber(
+    process.env.WHISPER_BIN ?? "whisper",
+    process.env.WHISPER_MODEL ?? "base.en",
+  ),
+  hub: voiceNodeHub,
+}));
 
 // --- Devices ---
 

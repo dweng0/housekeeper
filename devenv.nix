@@ -41,6 +41,24 @@
   scripts.test-all.exec = "npm test && cd client && npm test";
   scripts.test-watch.exec = "npx vitest";
 
+  scripts.setup-voices.exec = ''
+    VOICE_DIR="$PWD/data/piper-voices"
+    VOICE_BASE="en_US-lessac-medium"
+    HF="https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium"
+
+    mkdir -p "$VOICE_DIR"
+
+    if [ -f "$VOICE_DIR/$VOICE_BASE.onnx" ]; then
+      echo "Voice model already present: $VOICE_DIR/$VOICE_BASE.onnx"
+      exit 0
+    fi
+
+    echo "Downloading piper voice model..."
+    curl -L --progress-bar -o "$VOICE_DIR/$VOICE_BASE.onnx"      "$HF/$VOICE_BASE.onnx"
+    curl -L --progress-bar -o "$VOICE_DIR/$VOICE_BASE.onnx.json" "$HF/$VOICE_BASE.onnx.json"
+    echo "Done: $VOICE_DIR/$VOICE_BASE.onnx"
+  '';
+
   scripts.health.exec = ''
     curl -s http://localhost:$PORT/health | python3 -m json.tool
   '';
@@ -54,6 +72,13 @@
   '';
 
   enterShell = ''
+    # Download piper voice model if missing
+    VOICE_DIR="$PWD/data/piper-voices"
+    VOICE_BASE="en_US-lessac-medium"
+    if [ ! -f "$VOICE_DIR/$VOICE_BASE.onnx" ]; then
+      echo "Voice model not found — run: setup-voices"
+    fi
+
     printf '\033[36m'
     printf ' _                     _                         \n'
     printf '| |_  ___ _  _ ___ ___| |_____ ___ _ __  ___ _ _ \n'
@@ -68,6 +93,7 @@
     printf '  \033[32mtest-frontend\033[0m    run frontend tests\n'
     printf '  \033[32mtest-all\033[0m         run all tests\n'
     printf '  \033[32mtest-watch\033[0m       vitest in watch mode\n'
+    printf '  \033[32msetup-voices\033[0m     download piper TTS voice model\n'
     printf '  \033[32mhealth\033[0m           server health + connected nodes\n'
     printf '  \033[32mnodes\033[0m            list voice nodes\n'
     printf '  \033[32mlogs [type]\033[0m      tail logs (optional: type filter)\n\n'

@@ -272,7 +272,7 @@ describe("VoiceAutomationService", () => {
       const { hub, emit } = makeVoiceNodeHub();
       const { output, spoken } = makeSpeechOutput();
       const { gateway, published } = makeGateway();
-      const intent: ClassifiedIntent = { type: "device-control", deviceLabel: "Porch Light", command: "on" };
+      const intent: ClassifiedIntent = { type: "device-control", deviceLabel: "Porch Light", command: "on", response: "The porch light is now on." };
 
       const service = makeVoiceAutomationService({
         voiceNodeHub: hub,
@@ -290,6 +290,7 @@ describe("VoiceAutomationService", () => {
 
       expect(published[0].topic).toBe("home/porch-light");
       expect(published[0].payload).toBe("on");
+      expect(spoken[0].text).toBe("The porch light is now on.");
       expect(spoken[0].nodeId).toBe(TEST_NODE_ID);
     });
 
@@ -385,7 +386,7 @@ describe("VoiceAutomationService", () => {
       emit("housekeeper what time is it");
       await vi.waitFor(() => expect(classifySpy).toHaveBeenCalledOnce());
 
-      expect(classifySpy).toHaveBeenCalledWith("housekeeper what time is it", "household", []);
+      expect(classifySpy).toHaveBeenCalledWith(expect.objectContaining({ utterance: "housekeeper what time is it", residentId: "household", memories: [] }));
     });
 
     it("classifier receives residentId and memories from memoryStore", async () => {
@@ -412,11 +413,11 @@ describe("VoiceAutomationService", () => {
       emit("housekeeper turn on lights");
       await vi.waitFor(() => expect(classifySpy).toHaveBeenCalledOnce());
 
-      expect(classifySpy).toHaveBeenCalledWith(
-        "housekeeper turn on lights",
-        "Jay",
-        ["Jay prefers lights dim at night"],
-      );
+      expect(classifySpy).toHaveBeenCalledWith(expect.objectContaining({
+        utterance: "housekeeper turn on lights",
+        residentId: "Jay",
+        memories: ["Jay prefers lights dim at night"],
+      }));
     });
     it("stores automation fact to memoryStore after creation", async () => {
       const { hub, emit } = makeVoiceNodeHub();

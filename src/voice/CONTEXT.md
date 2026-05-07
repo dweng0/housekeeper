@@ -40,6 +40,14 @@ _Avoid_: context window, audio buffer, transcript buffer
 The point of detected silence (via VAD debounce, ~700ms–1s) that closes an Utterance on the Voice Node. Handled on the Voice Node, not the server.
 _Avoid_: end of speech, silence detection, cutoff
 
+**Confirmation Response**:
+The natural-language text the LLM generates alongside a Classified Intent, spoken back to the resident via TTS after the action is dispatched. Styled to match the system persona (e.g. *"Done — the hallway light is now on."*). Generated in the same LLM call as classification; not a separate round trip.
+_Avoid_: reply, message, feedback string
+
+**Classified Intent**:
+The structured output of the Intent Classifier for a Directed Question. Carries a `type` discriminator (`device-control`, `create-automation`, `set-resident`, `query`, `unknown`), type-specific fields, an optional `residentName` (present when the speaker identifies themselves in the same utterance as an action), and an optional `response` (the Confirmation Response).
+_Avoid_: parsed command, NLU result
+
 ## Relationships
 
 - A **Voice Node** sends zero or more **Utterances** to the server over WebSocket

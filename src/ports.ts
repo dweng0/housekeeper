@@ -1,5 +1,14 @@
 // Inbound ports
 
+export interface TranscriptResult {
+  transcript: string;
+  audioFeatures?: number[];
+}
+
+export interface Transcriber {
+  transcribe(audio: Buffer): Promise<TranscriptResult>;
+}
+
 export interface VoiceNodeConfigPatch {
   label?: string;
   location?: string;
@@ -14,10 +23,18 @@ export interface VoiceNodeHub {
   sendConfig(nodeId: string, patch: VoiceNodeConfigPatch): Promise<void>;
   getNode(nodeId: string): VoiceNode | undefined;
   getConnectedNodes(): VoiceNode[];
+  pushUtterance(nodeId: string, transcript: string): void;
+}
+
+export interface ClassifyOptions {
+  utterance: string;
+  residentId?: string;
+  memories?: string[];
+  location?: string;
 }
 
 export interface IntentClassifier {
-  classify(utterance: string, residentId?: string, memories?: string[]): Promise<ClassifiedIntent>;
+  classify(opts: ClassifyOptions): Promise<ClassifiedIntent>;
 }
 
 export interface HttpApi {
@@ -127,4 +144,5 @@ export interface ClassifiedIntent {
   command?: string;
   query?: string;
   residentName?: string;
+  response?: string;
 }

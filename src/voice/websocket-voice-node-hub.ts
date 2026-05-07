@@ -169,5 +169,9 @@ export function makeWebSocketVoiceNodeHub(
     getConnectedNodes() {
       return [...connectedNodes.values()];
     },
+
+    pushUtterance(nodeId, transcript) {
+      utteranceHandler?.(nodeId, transcript);
+    },
   };
 }

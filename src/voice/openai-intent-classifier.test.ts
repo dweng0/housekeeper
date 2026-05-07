@@ -43,7 +43,7 @@ describe("OpenAIIntentClassifier", () => {
     mockFetch({ choices: [{ message: { content: JSON.stringify(intent) } }] });
 
     const classifier = makeOpenAIIntentClassifier({ endpoint, model, devices: makeDeviceRepo(["Front Door", "Porch Light"]) });
-    const result = await classifier.classify("Jarvis when the front door opens turn on the porch light");
+    const result = await classifier.classify({ utterance: "Jarvis when the front door opens turn on the porch light" });
     expect(result.type).toBe("create-automation");
     expect(result.automation?.trigger.deviceLabel).toBe("Front Door");
   });
@@ -52,7 +52,7 @@ describe("OpenAIIntentClassifier", () => {
     mockFetch({ choices: [{ message: { content: JSON.stringify({ type: "unknown" }) } }] });
 
     const classifier = makeOpenAIIntentClassifier({ endpoint, model, devices: makeDeviceRepo([]) });
-    const result = await classifier.classify("I wonder what the weather is like");
+    const result = await classifier.classify({ utterance: "I wonder what the weather is like" });
     expect(result.type).toBe("unknown");
   });
 
@@ -60,7 +60,7 @@ describe("OpenAIIntentClassifier", () => {
     mockFetch({ choices: [{ message: { content: "not json at all" } }] });
 
     const classifier = makeOpenAIIntentClassifier({ endpoint, model, devices: makeDeviceRepo([]) });
-    const result = await classifier.classify("Jarvis do something");
+    const result = await classifier.classify({ utterance: "Jarvis do something" });
     expect(result.type).toBe("unknown");
   });
 
@@ -68,7 +68,7 @@ describe("OpenAIIntentClassifier", () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network error"));
 
     const classifier = makeOpenAIIntentClassifier({ endpoint, model, devices: makeDeviceRepo([]) });
-    const result = await classifier.classify("Jarvis do something");
+    const result = await classifier.classify({ utterance: "Jarvis do something" });
     expect(result.type).toBe("unknown");
   });
 
@@ -76,7 +76,7 @@ describe("OpenAIIntentClassifier", () => {
     const fetchSpy = mockFetch({ choices: [{ message: { content: JSON.stringify({ type: "unknown" }) } }] });
 
     const classifier = makeOpenAIIntentClassifier({ endpoint, model, devices: makeDeviceRepo(["Kitchen Light", "Back Door"]) });
-    await classifier.classify("something");
+    await classifier.classify({ utterance: "something" });
 
     const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
     const systemPrompt = body.messages[0].content as string;
@@ -88,7 +88,7 @@ describe("OpenAIIntentClassifier", () => {
     const fetchSpy = mockFetch({ choices: [{ message: { content: JSON.stringify({ type: "unknown" }) } }] });
 
     const classifier = makeOpenAIIntentClassifier({ endpoint, model, devices: makeDeviceRepo([]) });
-    await classifier.classify("something", undefined, ["Jay prefers lights dim at night"]);
+    await classifier.classify({ utterance: "something", memories: ["Jay prefers lights dim at night"] });
 
     const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
     const systemPrompt = body.messages[0].content as string;
@@ -99,7 +99,7 @@ describe("OpenAIIntentClassifier", () => {
     const fetchSpy = mockFetch({ choices: [{ message: { content: JSON.stringify({ type: "unknown" }) } }] });
 
     const classifier = makeOpenAIIntentClassifier({ endpoint, model, devices: makeDeviceRepo([]), apiKey: "sk-test-123" });
-    await classifier.classify("something");
+    await classifier.classify({ utterance: "something" });
 
     const headers = (fetchSpy.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
     expect(headers["Authorization"]).toBe("Bearer sk-test-123");
@@ -109,7 +109,7 @@ describe("OpenAIIntentClassifier", () => {
     const fetchSpy = mockFetch({ choices: [{ message: { content: JSON.stringify({ type: "unknown" }) } }] });
 
     const classifier = makeOpenAIIntentClassifier({ endpoint, model, devices: makeDeviceRepo([]) });
-    await classifier.classify("something");
+    await classifier.classify({ utterance: "something" });
 
     const headers = (fetchSpy.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
     expect(headers["Authorization"]).toBeUndefined();
@@ -124,7 +124,7 @@ describe("OpenAIIntentClassifier", () => {
       devices: makeDeviceRepo([]),
       persona: "You are a helpful assistant.",
     });
-    await classifier.classify("something");
+    await classifier.classify({ utterance: "something" });
 
     const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
     const systemPrompt = body.messages[0].content as string;
@@ -141,7 +141,7 @@ describe("OpenAIIntentClassifier", () => {
       persona: "You are {SYSTEM_NAME}, a smart home assistant.",
       systemName: "Housekeeper",
     });
-    await classifier.classify("something");
+    await classifier.classify({ utterance: "something" });
 
     const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
     const systemPrompt = body.messages[0].content as string;
@@ -167,7 +167,7 @@ describe("OpenAIIntentClassifier", () => {
       devices: makeDeviceRepo([]),
       config: mockConfigRepo,
     });
-    await classifier.classify("something");
+    await classifier.classify({ utterance: "something" });
 
     const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
     const systemPrompt = body.messages[0].content as string;
