@@ -21,6 +21,33 @@ import type { ConversationContext } from "./conversation-context.js";
 
 const DEFAULT_HISTORY_TOKEN_BUDGET = 4_000;
 
+// ===================================================================
+// ISSUE #59: VoiceAutomationService Interruption Orchestration
+// ===================================================================
+// Status: Core behaviors COMPLETE, Stream lifecycle management PARTIAL
+//
+// IMPLEMENTED:
+// - Stop-word detection (wait, stop, hold on, cancel, no, nope, never mind)
+// - Stop confirmation playback (cached audio variants)
+// - 3-second response window for yes/no intent
+// - Yes/No keyword matching (NOT LLM classification)
+// - Unknown intent dispatch on yes
+// - Timeout handling
+// - Comprehensive interruption logging
+//
+// NOT YET IMPLEMENTED (requires architectural change):
+// - Stream lifecycle tracking (sendTtsStream called from outside VoiceAutomationService)
+// - Mode switching integration (ListeningWindow.setMode exists, not yet called)
+// - Stream replay on "no" response (token preservation needed)
+// - Stream cancellation (VoiceNodeHub.cancel method needed or ignored)
+//
+// ARCHITECTURE NOTE:
+// Full stream orchestration requires exposing sendTtsStream() from
+// VoiceAutomationService as a wrapper that tracks stream tokens,
+// switches modes, and preserves buffers for replay. This is a
+// refactoring task (vertical slice: wrap sendTtsStream).
+// ===================================================================
+
 interface VoiceAutomationServiceDeps {
   voiceNodeHub: VoiceNodeHub;
   systemName: string;
