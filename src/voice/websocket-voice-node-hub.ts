@@ -222,7 +222,7 @@ export function makeWebSocketVoiceNodeHub(
       const bufferedChunks: Buffer[] = [];
 
       console.log(`[VoiceNodeHub] sendTtsStream: starting stream to ${nodeId}`);
-      sendJson(ws, { type: "tts_stream_start" });
+      sendJson(ws, { type: "tts_stream_start", streamToken });
       for await (const chunk of chunks) {
         if (ws.readyState !== WebSocket.OPEN) break;
         bufferedChunks.push(chunk);
