@@ -21,7 +21,17 @@ interface ConfigUpdatedMessage {
   error?: string;
 }
 
-type InboundMessage = RegisterMessage | UtteranceMessage | ConfigUpdatedMessage | { type: string };
+interface StopWordMessage {
+  type: "stop_word";
+  keyword: string;
+}
+
+interface TtsStreamCompleteMessage {
+  type: "tts_stream_complete";
+  streamToken: string;
+}
+
+type InboundMessage = RegisterMessage | UtteranceMessage | ConfigUpdatedMessage | StopWordMessage | TtsStreamCompleteMessage | { type: string };
 
 interface StreamCacheEntry {
   chunks: Buffer[];
@@ -34,6 +44,8 @@ export function makeWebSocketVoiceNodeHub(
 ): VoiceNodeHub {
   let wss: WebSocketServer | null = null;
   let utteranceHandler: ((nodeId: string, transcript: string) => void) | null = null;
+  let stopWordHandler: ((nodeId: string, keyword: string) => void) | null = null;
+  let ttsStreamCompleteHandler: ((nodeId: string, streamToken: string) => void) | null = null;
 
   const connections = new Map<string, WebSocket>();
   const socketToNodeId = new Map<WebSocket, string>();
@@ -112,6 +124,30 @@ export function makeWebSocketVoiceNodeHub(
     } else if (msg.type === "config_updated") {
       const ack = msg as ConfigUpdatedMessage;
       if (!ack.success) console.warn(`[VoiceNodeHub] config_updated failed: ${ack.error}`);
+    } else if (msg.type === "stop_word") {
+      const nodeId = socketToNodeId.get(ws);
+      if (!nodeId) {
+        sendError(ws, "REGISTRATION_REQUIRED", "send register before stop_word");
+        return;
+      }
+      const swMsg = msg as StopWordMessage;
+      if (!swMsg.keyword || typeof swMsg.keyword !== "string") {
+        sendError(ws, "INVALID_MESSAGE", "stop_word requires keyword");
+        return;
+      }
+      stopWordHandler?.(nodeId, swMsg.keyword);
+    } else if (msg.type === "tts_stream_complete") {
+      const nodeId = socketToNodeId.get(ws);
+      if (!nodeId) {
+        sendError(ws, "REGISTRATION_REQUIRED", "send register before tts_stream_complete");
+        return;
+      }
+      const tsMsg = msg as TtsStreamCompleteMessage;
+      if (!tsMsg.streamToken || typeof tsMsg.streamToken !== "string") {
+        sendError(ws, "INVALID_MESSAGE", "tts_stream_complete requires streamToken");
+        return;
+      }
+      ttsStreamCompleteHandler?.(nodeId, tsMsg.streamToken);
     } else {
       sendError(ws, "INVALID_MESSAGE", `unknown message type: ${msg.type}`);
     }
@@ -158,6 +194,14 @@ export function makeWebSocketVoiceNodeHub(
 
     onUtterance(handler) {
       utteranceHandler = handler;
+    },
+
+    onStopWord(handler) {
+      stopWordHandler = handler;
+    },
+
+    onTtsStreamComplete(handler) {
+      ttsStreamCompleteHandler = handler;
     },
 
     async sendTts(nodeId, audio) {

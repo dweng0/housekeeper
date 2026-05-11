@@ -134,8 +134,9 @@ export function makeVoiceAutomationService({
               if (entry.streamToken) {
                 const buffer = voiceNodeHub.getStreamBuffer(nodeId, entry.streamToken);
                 if (buffer && buffer.length > 0) {
+                  const chunks = buffer;
                   async function* replayChunks() {
-                    for (const chunk of buffer) {
+                    for (const chunk of chunks) {
                       yield chunk;
                     }
                   }
@@ -176,8 +177,9 @@ export function makeVoiceAutomationService({
                   if (entry.streamToken) {
                     const buffer = voiceNodeHub.getStreamBuffer(nodeId, entry.streamToken);
                     if (buffer && buffer.length > 0) {
+                      const chunks = buffer;
                       async function* replayChunks() {
-                        for (const chunk of buffer) {
+                        for (const chunk of chunks) {
                           yield chunk;
                         }
                       }
@@ -223,7 +225,7 @@ export function makeVoiceAutomationService({
           try {
             // Determine what to speak: clarifyingQuestion on low confidence, fallback to hedgedResponse or response
             if (isLowConfidence && (intent.clarifyingQuestion || intent.hedgedResponse)) {
-              spokenResponse = intent.clarifyingQuestion ?? intent.hedgedResponse;
+              spokenResponse = intent.clarifyingQuestion ?? intent.hedgedResponse!;
               await speechOutput.speak(spokenResponse, nodeId);
             } else if (intent.type === "query") {
               const spoken = intent.spokenResponse ?? intent.response;
@@ -470,7 +472,6 @@ export function makeVoiceAutomationService({
       window.setMode("stop-word-only");
       const token = await voiceNodeHub.sendTtsStream(nodeId, chunks);
       inFlightStreams.set(token, { token, startTime: Date.now() });
-      window.setMode("normal");
       return token;
     },
     start() {
@@ -478,6 +479,16 @@ export function makeVoiceAutomationService({
       voiceNodeHub.onUtterance((nodeId, text) => {
         console.log(`[Heard] [${nodeId}]`, text);
         getWindow(nodeId).addUtterance(text);
+      });
+      voiceNodeHub.onStopWord?.((nodeId, keyword) => {
+        console.log(`[VoiceAutomation] Stop-word from Pi: ${keyword} [${nodeId}]`);
+        // Trigger same interruption flow as server-side detection
+        getWindow(nodeId).addUtterance(keyword);
+      });
+      voiceNodeHub.onTtsStreamComplete?.((nodeId, token) => {
+        console.log(`[VoiceAutomation] TTS stream complete: ${token} [${nodeId}]`);
+        const window = getWindow(nodeId);
+        window.setMode("normal");
       });
       voiceNodeHub.start();
     },

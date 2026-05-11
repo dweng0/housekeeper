@@ -3,6 +3,7 @@ import type {
   Automation,
   AutomationRepository,
   ClassifiedIntent,
+  ConfigRepository,
   Device,
   DeviceGateway,
   DeviceRepository,

@@ -19,6 +19,8 @@ export interface VoiceNodeHub {
   start(): void;
   stop(): void;
   onUtterance(handler: (nodeId: string, transcript: string) => void): void;
+  onStopWord?(handler: (nodeId: string, keyword: string) => void): void;
+  onTtsStreamComplete?(handler: (nodeId: string, streamToken: string) => void): void;
   sendTts(nodeId: string, audio: Buffer): Promise<void>;
   sendTtsStream(nodeId: string, chunks: AsyncIterable<Buffer>): Promise<string>;
   sendConfig(nodeId: string, patch: VoiceNodeConfigPatch): Promise<void>;
