@@ -8,6 +8,8 @@ import type {
   DeviceRepository,
   IntentClassifier,
   MemoryStore,
+  QueryResponder,
+  ResponseAudioCache,
   VoiceNodeHub,
   SpeechOutput,
 } from "../ports.js";
@@ -39,6 +41,7 @@ function makeVoiceNodeHub() {
     start: vi.fn(),
     stop: vi.fn(),
     onUtterance: (h) => { handler = h; },
+    pushUtterance: vi.fn(),
     sendTts: vi.fn(),
     sendConfig: vi.fn(),
     getNode: vi.fn(),
@@ -76,6 +79,10 @@ function makeSpeechOutput() {
   const spoken: { text: string; nodeId: string }[] = [];
   const output: SpeechOutput = { speak: async (text, nodeId) => { spoken.push({ text, nodeId }); } };
   return { output, spoken };
+}
+
+function makeQueryResponder(reply: string): QueryResponder {
+  return { respond: async () => reply };
 }
 
 function makeGateway() {
@@ -341,6 +348,146 @@ describe("VoiceAutomationService", () => {
       expect(published).toHaveLength(0);
       expect(spoken[0].text).toMatch(/Nonexistent Light/i);
     });
+
+    describe("ResponseAudioCache", () => {
+      function makeAudioCache(buffer: Buffer | null, notFoundBuffer: Buffer | null = null): ResponseAudioCache {
+        return {
+          lookup: vi.fn(async () => buffer),
+          lookupNotFound: vi.fn(async () => notFoundBuffer),
+        };
+      }
+
+      it("cache hit: sends buffer via hub.sendTts and skips speechOutput.speak", async () => {
+        const { hub, emit } = makeVoiceNodeHub();
+        const { output, spoken } = makeSpeechOutput();
+        const { gateway } = makeGateway();
+        const cachedBuffer = Buffer.from("fake-wav");
+        const cache = makeAudioCache(cachedBuffer);
+        const intent: ClassifiedIntent = { type: "device-control", deviceLabel: "Porch Light", command: "on", response: "The porch light is now on." };
+
+        const service = makeVoiceAutomationService({
+          voiceNodeHub: hub,
+          systemName: "housekeeper",
+          classifier: makeClassifier(intent),
+          devices: makeDeviceRepo([actuator]),
+          automations: makeAutomationRepo(),
+          speechOutput: output,
+          gateway,
+          responseAudioCache: cache,
+        });
+
+        service.start();
+        emit("housekeeper turn on the porch light");
+        await vi.waitFor(() => expect(hub.sendTts).toHaveBeenCalledOnce());
+
+        expect(hub.sendTts).toHaveBeenCalledWith(TEST_NODE_ID, cachedBuffer);
+        expect(spoken).toHaveLength(0);
+      });
+
+      it("cache miss: falls through to speechOutput.speak", async () => {
+        const { hub, emit } = makeVoiceNodeHub();
+        const { output, spoken } = makeSpeechOutput();
+        const { gateway } = makeGateway();
+        const cache = makeAudioCache(null);
+        const intent: ClassifiedIntent = { type: "device-control", deviceLabel: "Porch Light", command: "on", response: "The porch light is now on." };
+
+        const service = makeVoiceAutomationService({
+          voiceNodeHub: hub,
+          systemName: "housekeeper",
+          classifier: makeClassifier(intent),
+          devices: makeDeviceRepo([actuator]),
+          automations: makeAutomationRepo(),
+          speechOutput: output,
+          gateway,
+          responseAudioCache: cache,
+        });
+
+        service.start();
+        emit("housekeeper turn on the porch light");
+        await vi.waitFor(() => expect(spoken).toHaveLength(1));
+
+        expect(hub.sendTts).not.toHaveBeenCalled();
+        expect(spoken[0].text).toBe("The porch light is now on.");
+      });
+
+      it("no responseAudioCache dep: behaves as miss, speaks via speechOutput", async () => {
+        const { hub, emit } = makeVoiceNodeHub();
+        const { output, spoken } = makeSpeechOutput();
+        const { gateway } = makeGateway();
+        const intent: ClassifiedIntent = { type: "device-control", deviceLabel: "Porch Light", command: "on", response: "The porch light is now on." };
+
+        const service = makeVoiceAutomationService({
+          voiceNodeHub: hub,
+          systemName: "housekeeper",
+          classifier: makeClassifier(intent),
+          devices: makeDeviceRepo([actuator]),
+          automations: makeAutomationRepo(),
+          speechOutput: output,
+          gateway,
+          // no responseAudioCache
+        });
+
+        service.start();
+        emit("housekeeper turn on the porch light");
+        await vi.waitFor(() => expect(spoken).toHaveLength(1));
+
+        expect(hub.sendTts).not.toHaveBeenCalled();
+        expect(spoken[0].text).toBe("The porch light is now on.");
+      });
+
+      it("unknown device + cache hit: sends not-found buffer via hub.sendTts, skips speechOutput.speak", async () => {
+        const { hub, emit } = makeVoiceNodeHub();
+        const { output, spoken } = makeSpeechOutput();
+        const { gateway } = makeGateway();
+        const notFoundBuffer = Buffer.from("not-found-audio");
+        const cache = makeAudioCache(null, notFoundBuffer);
+        const intent: ClassifiedIntent = { type: "device-control", deviceLabel: "Nonexistent Light", command: "on" };
+
+        const service = makeVoiceAutomationService({
+          voiceNodeHub: hub,
+          systemName: "housekeeper",
+          classifier: makeClassifier(intent),
+          devices: makeDeviceRepo([actuator]),
+          automations: makeAutomationRepo(),
+          speechOutput: output,
+          gateway,
+          responseAudioCache: cache,
+        });
+
+        service.start();
+        emit("housekeeper turn on the nonexistent light");
+        await vi.waitFor(() => expect(hub.sendTts).toHaveBeenCalledOnce());
+
+        expect(hub.sendTts).toHaveBeenCalledWith(TEST_NODE_ID, notFoundBuffer);
+        expect(spoken).toHaveLength(0);
+      });
+
+      it("unknown device + cache miss: falls through to speechOutput.speak", async () => {
+        const { hub, emit } = makeVoiceNodeHub();
+        const { output, spoken } = makeSpeechOutput();
+        const { gateway } = makeGateway();
+        const cache = makeAudioCache(null, null);
+        const intent: ClassifiedIntent = { type: "device-control", deviceLabel: "Nonexistent Light", command: "on" };
+
+        const service = makeVoiceAutomationService({
+          voiceNodeHub: hub,
+          systemName: "housekeeper",
+          classifier: makeClassifier(intent),
+          devices: makeDeviceRepo([actuator]),
+          automations: makeAutomationRepo(),
+          speechOutput: output,
+          gateway,
+          responseAudioCache: cache,
+        });
+
+        service.start();
+        emit("housekeeper turn on the nonexistent light");
+        await vi.waitFor(() => expect(spoken).toHaveLength(1));
+
+        expect(hub.sendTts).not.toHaveBeenCalled();
+        expect(spoken[0].text).toMatch(/Nonexistent Light/i);
+      });
+    });
   });
 
   describe("Resident Session integration", () => {
@@ -386,7 +533,7 @@ describe("VoiceAutomationService", () => {
       emit("housekeeper what time is it");
       await vi.waitFor(() => expect(classifySpy).toHaveBeenCalledOnce());
 
-      expect(classifySpy).toHaveBeenCalledWith(expect.objectContaining({ utterance: "housekeeper what time is it", residentId: "household", memories: [] }));
+      expect(classifySpy).toHaveBeenCalledWith(expect.objectContaining({ utterance: "what time is it", residentId: "household", memories: [] }));
     });
 
     it("classifier receives residentId and memories from memoryStore", async () => {
@@ -414,7 +561,7 @@ describe("VoiceAutomationService", () => {
       await vi.waitFor(() => expect(classifySpy).toHaveBeenCalledOnce());
 
       expect(classifySpy).toHaveBeenCalledWith(expect.objectContaining({
-        utterance: "housekeeper turn on lights",
+        utterance: "turn on lights",
         residentId: "Jay",
         memories: ["Jay prefers lights dim at night"],
       }));
@@ -452,6 +599,516 @@ describe("VoiceAutomationService", () => {
       expect(memoryStore.stored[0].residentId).toBe("Jay");
       expect(memoryStore.stored[0].fact).toMatch(/Front Door/);
       expect(memoryStore.stored[0].fact).toMatch(/Porch Light/);
+    });
+  });
+
+  describe("Intent Confidence routing", () => {
+    function makeAudioCache(buffer: Buffer | null): ResponseAudioCache {
+      return {
+        lookup: vi.fn(async () => buffer),
+        lookupNotFound: vi.fn(async () => null),
+      };
+    }
+
+    it("low confidence device-control: speaks hedgedResponse via live TTS, skips cache", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output, spoken } = makeSpeechOutput();
+      const { gateway } = makeGateway();
+      const cachedBuffer = Buffer.from("fake-wav");
+      const cache = makeAudioCache(cachedBuffer);
+      const intent: ClassifiedIntent = {
+        type: "device-control",
+        deviceLabel: "Porch Light",
+        command: "on",
+        response: "The porch light is now on.",
+        hedgedResponse: "I think you're asking me to turn on the porch light — done.",
+        intentConfidence: 0.4,
+      };
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: makeClassifier(intent),
+        devices: makeDeviceRepo([actuator]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        gateway,
+        responseAudioCache: cache,
+      });
+
+      service.start();
+      emit("housekeeper maybe porch light on?");
+      await vi.waitFor(() => expect(spoken).toHaveLength(1));
+
+      expect(hub.sendTts).not.toHaveBeenCalled();
+      expect(spoken[0].text).toBe("I think you're asking me to turn on the porch light — done.");
+    });
+
+    it("high confidence device-control: uses cache as normal", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output, spoken } = makeSpeechOutput();
+      const { gateway } = makeGateway();
+      const cachedBuffer = Buffer.from("fake-wav");
+      const cache = makeAudioCache(cachedBuffer);
+      const intent: ClassifiedIntent = {
+        type: "device-control",
+        deviceLabel: "Porch Light",
+        command: "on",
+        response: "The porch light is now on.",
+        hedgedResponse: "I think you're asking me to turn on the porch light — done.",
+        intentConfidence: 0.9,
+      };
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: makeClassifier(intent),
+        devices: makeDeviceRepo([actuator]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        gateway,
+        responseAudioCache: cache,
+      });
+
+      service.start();
+      emit("housekeeper turn on the porch light");
+      await vi.waitFor(() => expect(hub.sendTts).toHaveBeenCalledOnce());
+
+      expect(hub.sendTts).toHaveBeenCalledWith(TEST_NODE_ID, cachedBuffer);
+      expect(spoken).toHaveLength(0);
+    });
+
+    it("low confidence query: speaks hedgedResponse", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output, spoken } = makeSpeechOutput();
+      const intent: ClassifiedIntent = {
+        type: "query",
+        query: "weather?",
+        response: "I don't have live weather data.",
+        hedgedResponse: "I think you're asking about the weather — I don't have live data right now.",
+        intentConfidence: 0.5,
+      };
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: makeClassifier(intent),
+        devices: makeDeviceRepo([]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+      });
+
+      service.start();
+      emit("housekeeper weather something");
+      await vi.waitFor(() => expect(spoken).toHaveLength(1));
+
+      expect(spoken[0].text).toBe("I think you're asking about the weather — I don't have live data right now.");
+    });
+
+    it("no intentConfidence field: treats as high confidence (backward compat)", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output, spoken } = makeSpeechOutput();
+      const { gateway } = makeGateway();
+      const intent: ClassifiedIntent = {
+        type: "device-control",
+        deviceLabel: "Porch Light",
+        command: "on",
+        response: "The porch light is now on.",
+      };
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: makeClassifier(intent),
+        devices: makeDeviceRepo([actuator]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        gateway,
+      });
+
+      service.start();
+      emit("housekeeper turn on the porch light");
+      await vi.waitFor(() => expect(spoken).toHaveLength(1));
+
+      expect(spoken[0].text).toBe("The porch light is now on.");
+    });
+  });
+
+  describe("Conversation Context", () => {
+    it("conversationContextTimeoutSeconds from config controls how long context stays open", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output, spoken } = makeSpeechOutput();
+      const { gateway } = makeGateway();
+
+      const firstIntent: ClassifiedIntent = {
+        type: "device-control",
+        deviceLabel: "Porch Light",
+        command: "on",
+        response: "Done — porch light is on.",
+      };
+      let call = 0;
+      const classifySpy = vi.fn().mockImplementation(async () => call++ === 0 ? firstIntent : { type: "unknown" });
+
+      const mockConfig: ConfigRepository = {
+        get: async () => ({ autoDiscovery: false, conversationContextTimeoutSeconds: 0 }),
+        save: async () => {},
+      };
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: { classify: classifySpy },
+        devices: makeDeviceRepo([actuator]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        gateway,
+        config: mockConfig,
+      });
+
+      service.start();
+      emit("housekeeper turn on the porch light");
+      await vi.waitFor(() => expect(spoken).toHaveLength(1));
+      // 0ms timeout — context expired on next tick
+      await new Promise((r) => setTimeout(r, 10));
+
+      emit("actually turn it off");
+      await new Promise((r) => setTimeout(r, 20));
+
+      // Only the first directed question classify call, ambient discarded
+      expect(classifySpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("follow-up utterance without system name is discarded when context is closed", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output } = makeSpeechOutput();
+      const classifySpy = vi.fn().mockResolvedValue({ type: "unknown" } as ClassifiedIntent);
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: { classify: classifySpy },
+        devices: makeDeviceRepo([]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+      });
+
+      service.start();
+      // No prior directed question — context is closed
+      emit("actually turn it off");
+      await new Promise((r) => setTimeout(r, 20));
+
+      expect(classifySpy).not.toHaveBeenCalled();
+    });
+
+    it("new directed question resets context so it does not carry prior history", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output, spoken } = makeSpeechOutput();
+      const { gateway } = makeGateway();
+
+      const firstIntent: ClassifiedIntent = {
+        type: "device-control",
+        deviceLabel: "Porch Light",
+        command: "on",
+        response: "Done — porch light is on.",
+      };
+      let call = 0;
+      const classifySpy = vi.fn().mockImplementation(async () => call++ === 0 ? firstIntent : { type: "unknown" });
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: { classify: classifySpy },
+        devices: makeDeviceRepo([actuator]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        gateway,
+      });
+
+      service.start();
+      emit("housekeeper turn on the porch light");
+      await vi.waitFor(() => expect(spoken).toHaveLength(1));
+      await Promise.resolve();
+
+      // Second directed question — context resets before classify
+      emit("housekeeper turn off the porch light");
+      await vi.waitFor(() => expect(classifySpy).toHaveBeenCalledTimes(2));
+
+      expect(classifySpy.mock.calls[1][0]).not.toHaveProperty("conversationHistory", expect.arrayContaining([
+        expect.objectContaining({ role: "user" }),
+      ]));
+      // conversationHistory should be absent or empty
+      const secondCallHistory = classifySpy.mock.calls[1][0].conversationHistory;
+      expect(!secondCallHistory || secondCallHistory.length === 0).toBe(true);
+    });
+
+    it("set-resident intent resets context so subsequent ambient utterances are discarded", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output, spoken } = makeSpeechOutput();
+
+      const setResidentIntent: ClassifiedIntent = {
+        type: "set-resident",
+        residentName: "Jay",
+        response: "Hi Jay!",
+      };
+      let call = 0;
+      const classifySpy = vi.fn().mockImplementation(async () => call++ === 0 ? setResidentIntent : { type: "unknown" });
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: { classify: classifySpy },
+        devices: makeDeviceRepo([]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+      });
+
+      service.start();
+      // First, a directed question that WOULD open context — but set-resident resets it
+      emit("housekeeper this is Jay");
+      await vi.waitFor(() => expect(spoken).toHaveLength(1));
+      await Promise.resolve();
+
+      // Ambient utterance — context should be closed due to set-resident reset
+      emit("do something else");
+      await new Promise((r) => setTimeout(r, 20));
+
+      expect(classifySpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("follow-up utterance (no system name, context open) is classified with conversationHistory", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output, spoken } = makeSpeechOutput();
+      const { gateway } = makeGateway();
+
+      const firstIntent: ClassifiedIntent = {
+        type: "device-control",
+        deviceLabel: "Porch Light",
+        command: "on",
+        response: "Done — porch light is on.",
+      };
+      let call = 0;
+      const classifySpy = vi.fn().mockImplementation(async () => call++ === 0 ? firstIntent : { type: "unknown" });
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: { classify: classifySpy },
+        devices: makeDeviceRepo([actuator]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        gateway,
+      });
+
+      service.start();
+      emit("housekeeper turn on the porch light");
+      await vi.waitFor(() => expect(spoken).toHaveLength(1));
+      await Promise.resolve(); // flush microtasks so ctx.addTurn runs
+
+      emit("actually turn it off");
+      await vi.waitFor(() => expect(classifySpy).toHaveBeenCalledTimes(2));
+
+      expect(classifySpy.mock.calls[1][0]).toMatchObject({
+        utterance: "actually turn it off",
+        conversationHistory: [
+          { role: "user", content: "turn on the porch light" },
+          { role: "assistant", content: "Done — porch light is on." },
+        ],
+      });
+    });
+  });
+
+  describe("query intent", () => {
+    it("speaks the QueryResponder reply when intent is query", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output, spoken } = makeSpeechOutput();
+      const intent: ClassifiedIntent = { type: "query", query: "What makes plants green?" };
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: makeClassifier(intent),
+        devices: makeDeviceRepo([]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        queryResponder: makeQueryResponder("Chlorophyll absorbs sunlight."),
+      });
+
+      service.start();
+      emit("housekeeper what makes plants green?");
+      await vi.waitFor(() => expect(spoken).toHaveLength(1));
+
+      expect(spoken[0].text).toBe("Chlorophyll absorbs sunlight.");
+      expect(spoken[0].nodeId).toBe(TEST_NODE_ID);
+    });
+
+    it("speaks inline response directly without calling queryResponder", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output, spoken } = makeSpeechOutput();
+      const respondSpy = vi.fn().mockResolvedValue("should not be called");
+      const intent: ClassifiedIntent = { type: "query", query: "what temperature is the sun?", response: "The sun's surface is about 5,500°C." };
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: makeClassifier(intent),
+        devices: makeDeviceRepo([]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        queryResponder: { respond: respondSpy },
+      });
+
+      service.start();
+      emit("housekeeper what temperature is the sun?");
+      await vi.waitFor(() => expect(spoken).toHaveLength(1));
+
+      expect(spoken[0].text).toBe("The sun's surface is about 5,500°C.");
+      expect(respondSpy).not.toHaveBeenCalled();
+    });
+
+    it("passes memories and location to QueryResponder", async () => {
+      const { hub: hub2, emit } = makeVoiceNodeHub();
+      const { output } = makeSpeechOutput();
+      const intent: ClassifiedIntent = { type: "query", query: "Do I have any pets?" };
+      const respondSpy = vi.fn().mockResolvedValue("Yes, you have a cat.");
+      const memoryStore = makeMemoryStore();
+      const session = makeResidentSession();
+      session.setActive("Jay");
+      await memoryStore.store("Jay", "Jay has a cat named Whiskers");
+      hub2.getNode = vi.fn().mockReturnValue({ id: TEST_NODE_ID, location: "kitchen", capabilities: ["mic"], confirmed: true, transport: "websocket" as const, label: "kitchen" });
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub2,
+        systemName: "housekeeper",
+        classifier: makeClassifier(intent),
+        devices: makeDeviceRepo([]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        queryResponder: { respond: respondSpy },
+        session,
+        memoryStore,
+      });
+
+      service.start();
+      emit("housekeeper do I have any pets?");
+      await vi.waitFor(() => expect(respondSpy).toHaveBeenCalledOnce());
+
+      expect(respondSpy).toHaveBeenCalledWith(
+        "Do I have any pets?",
+        expect.objectContaining({
+          memories: expect.arrayContaining(["Jay has a cat named Whiskers"]),
+          location: "kitchen",
+        }),
+      );
+    });
+  });
+
+  describe("ambient utterance in open context", () => {
+    it("adds ambient turn to context so next ambient classify call sees it in history", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output, spoken } = makeSpeechOutput();
+      const { gateway } = makeGateway();
+
+      let call = 0;
+      const classifySpy = vi.fn().mockImplementation(async (): Promise<ClassifiedIntent> => {
+        const n = call++;
+        if (n === 0) return { type: "device-control", deviceLabel: "Porch Light", command: "on", response: "Done." };
+        return { type: "query", response: `reply ${n}` };
+      });
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: { classify: classifySpy },
+        devices: makeDeviceRepo([actuator]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        gateway,
+      });
+
+      service.start();
+      emit("housekeeper turn on the porch light");
+      await vi.waitFor(() => expect(spoken).toHaveLength(1));
+      await Promise.resolve();
+
+      emit("oh you can go there by train");
+      await vi.waitFor(() => expect(spoken).toHaveLength(2));
+      await Promise.resolve();
+
+      emit("and it's quite fast too");
+      await vi.waitFor(() => expect(classifySpy).toHaveBeenCalledTimes(3));
+
+      const thirdCallHistory = classifySpy.mock.calls[2][0].conversationHistory;
+      expect(thirdCallHistory).toContainEqual({ role: "user", content: "oh you can go there by train" });
+      expect(thirdCallHistory).toContainEqual({ role: "assistant", content: "reply 1" });
+    });
+
+    it("does not speak when ambient utterance classifies as unknown", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output, spoken } = makeSpeechOutput();
+      const { gateway } = makeGateway();
+
+      let call = 0;
+      const classifySpy = vi.fn().mockImplementation(async (): Promise<ClassifiedIntent> => {
+        if (call++ === 0) {
+          return { type: "device-control", deviceLabel: "Porch Light", command: "on", response: "Done." };
+        }
+        return { type: "unknown" };
+      });
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: { classify: classifySpy },
+        devices: makeDeviceRepo([actuator]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        gateway,
+      });
+
+      service.start();
+      emit("housekeeper turn on the porch light");
+      await vi.waitFor(() => expect(spoken).toHaveLength(1));
+      await Promise.resolve();
+
+      emit("mumble mumble");
+      await new Promise((r) => setTimeout(r, 30));
+
+      expect(spoken).toHaveLength(1);
+    });
+
+    it("speaks query response when context is open", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output, spoken } = makeSpeechOutput();
+      const { gateway } = makeGateway();
+
+      let call = 0;
+      const classifySpy = vi.fn().mockImplementation(async (): Promise<ClassifiedIntent> => {
+        if (call++ === 0) {
+          return { type: "device-control", deviceLabel: "Porch Light", command: "on", response: "Done." };
+        }
+        return { type: "query", response: "Yes, you can take the Eurostar." };
+      });
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: { classify: classifySpy },
+        devices: makeDeviceRepo([actuator]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        gateway,
+      });
+
+      service.start();
+      emit("housekeeper turn on the porch light");
+      await vi.waitFor(() => expect(spoken).toHaveLength(1));
+      await Promise.resolve();
+
+      emit("oh you can go there by train");
+      await vi.waitFor(() => expect(spoken).toHaveLength(2));
+
+      expect(spoken[1].text).toBe("Yes, you can take the Eurostar.");
+      expect(spoken[1].nodeId).toBe(TEST_NODE_ID);
     });
   });
 });

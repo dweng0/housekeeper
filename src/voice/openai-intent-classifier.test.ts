@@ -149,6 +149,83 @@ describe("OpenAIIntentClassifier", () => {
     expect(systemPrompt).not.toContain("{SYSTEM_NAME}");
   });
 
+  it("includes response field in query intent shape in system prompt", async () => {
+    const fetchSpy = mockFetch({ choices: [{ message: { content: JSON.stringify({ type: "unknown" }) } }] });
+
+    const classifier = makeOpenAIIntentClassifier({ endpoint, model, devices: makeDeviceRepo([]) });
+    await classifier.classify({ utterance: "something" });
+
+    const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
+    const systemPrompt = body.messages[0].content as string;
+    expect(systemPrompt).toMatch(/"type": "query".*"response"/);
+  });
+
+  it("returns intentConfidence and hedgedResponse from LLM on device-control intent", async () => {
+    const intent: ClassifiedIntent = {
+      type: "device-control",
+      deviceLabel: "hallway light",
+      command: "on",
+      response: "Done — the hallway light is now on.",
+      hedgedResponse: "I think you're asking me to turn on the hallway light — done.",
+      intentConfidence: 0.5,
+    };
+    mockFetch({ choices: [{ message: { content: JSON.stringify(intent) } }] });
+
+    const classifier = makeOpenAIIntentClassifier({ endpoint, model, devices: makeDeviceRepo(["hallway light"]) });
+    const result = await classifier.classify({ utterance: "hallway light maybe on housekeeper" });
+    expect(result.intentConfidence).toBe(0.5);
+    expect(result.hedgedResponse).toBe("I think you're asking me to turn on the hallway light — done.");
+  });
+
+  it("returns intentConfidence and hedgedResponse from LLM on query intent", async () => {
+    const intent: ClassifiedIntent = {
+      type: "query",
+      query: "what is the weather",
+      response: "I don't have live weather data right now.",
+      hedgedResponse: "I think you're asking about the weather — I don't have live data right now.",
+      intentConfidence: 0.6,
+    };
+    mockFetch({ choices: [{ message: { content: JSON.stringify(intent) } }] });
+
+    const classifier = makeOpenAIIntentClassifier({ endpoint, model, devices: makeDeviceRepo([]) });
+    const result = await classifier.classify({ utterance: "housekeeper weather maybe?" });
+    expect(result.intentConfidence).toBe(0.6);
+    expect(result.hedgedResponse).toBeDefined();
+  });
+
+  it("system prompt instructs LLM to return intentConfidence and hedgedResponse", async () => {
+    const fetchSpy = mockFetch({ choices: [{ message: { content: JSON.stringify({ type: "unknown" }) } }] });
+
+    const classifier = makeOpenAIIntentClassifier({ endpoint, model, devices: makeDeviceRepo([]) });
+    await classifier.classify({ utterance: "something" });
+
+    const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
+    const systemPrompt = body.messages[0].content as string;
+    expect(systemPrompt).toContain("intentConfidence");
+    expect(systemPrompt).toContain("hedgedResponse");
+  });
+
+  it("prepends conversationHistory turns between system prompt and current utterance", async () => {
+    const fetchSpy = mockFetch({ choices: [{ message: { content: JSON.stringify({ type: "unknown" }) } }] });
+
+    const classifier = makeOpenAIIntentClassifier({ endpoint, model, devices: makeDeviceRepo([]) });
+    await classifier.classify({
+      utterance: "actually turn it off",
+      conversationHistory: [
+        { role: "user", content: "turn on the porch light" },
+        { role: "assistant", content: "Done — porch light is on." },
+      ],
+    });
+
+    const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
+    const messages = body.messages as { role: string; content: string }[];
+    expect(messages[0].role).toBe("system");
+    expect(messages[1]).toEqual({ role: "user", content: "turn on the porch light" });
+    expect(messages[2]).toEqual({ role: "assistant", content: "Done — porch light is on." });
+    expect(messages[3]).toEqual({ role: "user", content: "actually turn it off" });
+    expect(messages).toHaveLength(4);
+  });
+
   it("reads persona and systemName from config repository when provided", async () => {
     const fetchSpy = mockFetch({ choices: [{ message: { content: JSON.stringify({ type: "unknown" }) } }] });
 

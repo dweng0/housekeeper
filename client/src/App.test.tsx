@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from './App'
 
@@ -41,12 +41,17 @@ beforeEach(() => {
   vi.restoreAllMocks()
 })
 
+const baseRoutes = {
+  '/api/voice-nodes': [],
+  '/api/logs': [],
+}
+
 describe('App', () => {
   it('renders registered devices on load', async () => {
     mockFetch({
+      ...baseRoutes,
       '/api/devices': [device],
       '/api/config': config,
-      '/api/unregistered-devices': [],
       '/api/automations': [],
     })
 
@@ -58,9 +63,9 @@ describe('App', () => {
 
   it('shows empty state when no devices', async () => {
     mockFetch({
+      ...baseRoutes,
       '/api/devices': [],
       '/api/config': config,
-      '/api/unregistered-devices': [],
       '/api/automations': [],
     })
 
@@ -72,12 +77,52 @@ describe('App', () => {
   })
 })
 
+describe('Assistant Settings — conversation context timeout', () => {
+  it('shows conversationContextTimeoutSeconds from config and saves updated value', async () => {
+    const user = userEvent.setup()
+    const fetchSpy = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'PUT') {
+        return { ok: true, status: 200, json: async () => ({}), text: async () => '{}' }
+      }
+      const routes: Record<string, unknown> = {
+        '/api/voice-nodes': [],
+        '/api/logs': [],
+        '/api/devices': [],
+        '/api/automations': [],
+        '/api/config': { autoDiscovery: false, systemName: 'housekeeper', conversationContextTimeoutSeconds: 45 },
+      }
+      return { ok: true, status: 200, json: async () => routes[url] ?? {}, text: async () => JSON.stringify(routes[url] ?? {}) }
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    render(<App />)
+
+    await waitFor(() => expect(screen.getByLabelText(/edit assistant settings/i)).toBeInTheDocument())
+    await user.click(screen.getByLabelText(/edit assistant settings/i))
+
+    const input = await screen.findByLabelText(/conversation context timeout/i)
+    expect(input).toHaveValue(45)
+
+    fireEvent.change(input, { target: { value: '60' } })
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => {
+      const putCall = fetchSpy.mock.calls.find(
+        ([url, init]: [string, RequestInit]) => url === '/api/config' && init?.method === 'PUT'
+      )
+      expect(putCall).toBeDefined()
+      const body = JSON.parse(putCall![1].body as string)
+      expect(body.conversationContextTimeoutSeconds).toBe(60)
+    })
+  })
+})
+
 describe('Automations', () => {
   it('renders automations list on load', async () => {
     mockFetch({
+      ...baseRoutes,
       '/api/devices': [device, actuator],
       '/api/config': config,
-      '/api/unregistered-devices': [],
       '/api/automations': [automation],
     })
 
@@ -90,9 +135,9 @@ describe('Automations', () => {
 
   it('shows empty state when no automations', async () => {
     mockFetch({
+      ...baseRoutes,
       '/api/devices': [],
       '/api/config': config,
-      '/api/unregistered-devices': [],
       '/api/automations': [],
     })
 

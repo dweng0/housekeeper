@@ -14,6 +14,9 @@ interface AppConfig {
   defaultOutputNodeId?: string;
   systemName?: string;
   persona?: string;
+  responseCacheVariantCount?: number;
+  intentConfidenceThreshold?: number;
+  conversationContextTimeoutSeconds?: number;
 }
 
 interface VoiceNode {
@@ -77,7 +80,8 @@ export default function App() {
   const [form, setForm] = useState<FormState | null>(null);
   const [automationForm, setAutomationForm] = useState<AutomationFormState | null>(null);
   const [voiceNodeEditForm, setVoiceNodeEditForm] = useState<{ id: string; label: string; location: string } | null>(null);
-  const [personaForm, setPersonaForm] = useState<{ persona: string; systemName: string } | null>(null);
+  const [personaForm, setPersonaForm] = useState<{ persona: string; systemName: string; responseCacheVariantCount: number; intentConfidenceThreshold: number; conversationContextTimeoutSeconds: number } | null>(null);
+  const [cacheRebuildStatus, setCacheRebuildStatus] = useState<"idle" | "rebuilding" | "done" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const [automationError, setAutomationError] = useState<string | null>(null);
   const [personaError, setPersonaError] = useState<string | null>(null);
@@ -118,6 +122,9 @@ export default function App() {
     setPersonaForm({
       persona: config.persona ?? "",
       systemName: config.systemName ?? "",
+      responseCacheVariantCount: config.responseCacheVariantCount ?? 3,
+      intentConfidenceThreshold: config.intentConfidenceThreshold ?? 0.7,
+      conversationContextTimeoutSeconds: config.conversationContextTimeoutSeconds ?? 30,
     });
     setPersonaError(null);
   }
@@ -138,6 +145,9 @@ export default function App() {
           defaultOutputNodeId: config.defaultOutputNodeId,
           systemName: personaForm.systemName,
           persona: personaForm.persona,
+          responseCacheVariantCount: personaForm.responseCacheVariantCount,
+          intentConfidenceThreshold: personaForm.intentConfidenceThreshold,
+          conversationContextTimeoutSeconds: personaForm.conversationContextTimeoutSeconds,
         }),
       });
       setConfig(updated);
@@ -271,6 +281,29 @@ export default function App() {
         <div className="text-xs text-muted-foreground">
           <p>System name: <span className="font-medium">{config.systemName ?? "housekeeper"}</span></p>
           <p className="mt-1 truncate">Persona: <span className="font-medium">{config.persona?.substring(0, 60) ?? "You are a friendly and helpful smart home assistant..."}{config.persona && config.persona.length > 60 && "..."}</span></p>
+          <p className="mt-1">Response cache variants: <span className="font-medium">{config.responseCacheVariantCount ?? 3}</span></p>
+          <p className="mt-1">Confidence threshold: <span className="font-medium">{config.intentConfidenceThreshold ?? 0.7}</span></p>
+        </div>
+        <div className="mt-3 pt-3 border-t border-border flex items-center gap-3">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={cacheRebuildStatus === "rebuilding"}
+            onClick={async () => {
+              setCacheRebuildStatus("rebuilding");
+              try {
+                await apiFetch<{ status: string }>("/api/voice/response-cache/rebuild", { method: "POST" });
+                setCacheRebuildStatus("done");
+              } catch {
+                setCacheRebuildStatus("error");
+              }
+            }}
+          >
+            {cacheRebuildStatus === "rebuilding" ? "Rebuilding…" : "Rebuild Cache"}
+          </Button>
+          {cacheRebuildStatus === "done" && <span className="text-xs text-green-600">Rebuild started — may take several minutes</span>}
+          {cacheRebuildStatus === "error" && <span className="text-xs text-destructive">Rebuild failed</span>}
+          {cacheRebuildStatus === "idle" && <span className="text-xs text-muted-foreground">Rebuilding may take several minutes depending on the number of devices</span>}
         </div>
       </div>
 
@@ -306,6 +339,57 @@ export default function App() {
               placeholder="You are a friendly and helpful smart home assistant..."
             />
             <p className="text-xs text-muted-foreground">Use {'{SYSTEM_NAME}'} as a placeholder for the system name</p>
+            {personaForm.persona !== (config.persona ?? "") && (
+              <p className="text-xs text-amber-600">Cache reflects the previous persona — rebuild recommended after saving</p>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-sm text-muted-foreground" htmlFor="variantCount">
+              Response Cache Variants
+            </label>
+            <select
+              id="variantCount"
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring w-fit"
+              value={personaForm.responseCacheVariantCount}
+              onChange={(e) => setPersonaForm({ ...personaForm, responseCacheVariantCount: Number(e.target.value) })}
+            >
+              <option value={3}>3 (medium disk space)</option>
+              <option value={5}>5 (large disk space)</option>
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-sm text-muted-foreground" htmlFor="confidenceThreshold">
+              Confidence Threshold
+            </label>
+            <input
+              id="confidenceThreshold"
+              type="number"
+              min={0}
+              max={1}
+              step={0.05}
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring w-24"
+              value={personaForm.intentConfidenceThreshold}
+              onChange={(e) => setPersonaForm({ ...personaForm, intentConfidenceThreshold: Number(e.target.value) })}
+            />
+            <p className="text-xs text-muted-foreground">Below this value (0–1) the system hedges its response. Default: 0.7</p>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-sm text-muted-foreground" htmlFor="conversationContextTimeout">
+              Conversation Context Timeout (seconds)
+            </label>
+            <input
+              id="conversationContextTimeout"
+              type="number"
+              min={1}
+              step={1}
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring w-24"
+              value={personaForm.conversationContextTimeoutSeconds}
+              onChange={(e) => setPersonaForm({ ...personaForm, conversationContextTimeoutSeconds: Math.max(1, Math.round(Number(e.target.value))) })}
+            />
+            <p className="text-xs text-muted-foreground">Seconds of silence before follow-up window closes. Default: 30</p>
           </div>
 
           {personaError && <p className="text-sm text-destructive">{personaError}</p>}

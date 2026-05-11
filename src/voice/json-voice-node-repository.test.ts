@@ -5,8 +5,8 @@ import { tmpdir } from "os";
 import { makeJsonVoiceNodeRepository } from "./json-voice-node-repository.js";
 import type { VoiceNode } from "../ports.js";
 
-const node1: VoiceNode = { id: "n1", label: "Hallway", location: "downstairs hallway", capabilities: ["mic"], confirmed: false };
-const node2: VoiceNode = { id: "n2", label: "Kitchen", location: "kitchen", capabilities: ["mic", "speaker"], confirmed: true };
+const node1: VoiceNode = { id: "n1", label: "Hallway", location: "downstairs hallway", capabilities: ["mic"], confirmed: false, transport: "websocket" };
+const node2: VoiceNode = { id: "n2", label: "Kitchen", location: "kitchen", capabilities: ["mic", "speaker"], confirmed: true, transport: "websocket" };
 
 let dir: string;
 let filePath: string;

@@ -53,8 +53,8 @@ export function makeWebSocketVoiceNodeHub(
     const isNew = existing === null;
 
     const node: VoiceNode = existing
-      ? { ...existing, label, location, capabilities }
-      : { id, label, location, capabilities, confirmed: false };
+      ? { ...existing, label, location, capabilities, transport: "websocket" }
+      : { id, label, location, capabilities, confirmed: false, transport: "websocket" };
 
     await repository.save(node);
 
@@ -149,6 +149,7 @@ export function makeWebSocketVoiceNodeHub(
         console.warn(`[VoiceNodeHub] sendTts: node ${nodeId} not connected, dropping response`);
         return;
       }
+      console.log(`[VoiceNodeHub] sendTts: sending ${audio.length} bytes to ${nodeId}`);
       ws.send(audio);
     },
 

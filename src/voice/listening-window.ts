@@ -2,6 +2,7 @@ export interface ListeningWindowOptions {
   systemName: string;
   windowDurationMs?: number;
   onDirectedQuestion: (transcript: string) => void;
+  onAmbientUtterance?: (transcript: string) => void;
 }
 
 export interface ListeningWindow {
@@ -17,6 +18,7 @@ export function makeListeningWindow({
   systemName,
   windowDurationMs = 15_000,
   onDirectedQuestion,
+  onAmbientUtterance,
 }: ListeningWindowOptions): ListeningWindow {
   const entries: Entry[] = [];
   const nameLower = systemName.toLowerCase();
@@ -30,7 +32,22 @@ export function makeListeningWindow({
       entries.push({ text, timestamp: timestampMs });
 
       if (text.toLowerCase().includes(nameLower)) {
-        onDirectedQuestion(entries.map((e) => e.text).join(" "));
+        const nameRegex = new RegExp(systemName, "gi");
+        const wakeWordRegex = /^(alexa|hey google|ok google|hey siri|siri)[,.\s]*/i;
+        // System name in current utterance — use only current utterance as the question
+        // (prior window entries are ambient context, not part of this directed question)
+        const currentStripped = text.replace(nameRegex, "").replace(wakeWordRegex, "").replace(/\s+/g, " ").trim();
+        const isStandalone = currentStripped.replace(/[^a-z]/gi, "").length < 3;
+
+        const transcript = isStandalone
+          // Standalone "housekeeper." — include full window for context
+          ? entries.map((e) => e.text).join(" ").replace(nameRegex, "").replace(wakeWordRegex, "").replace(/\s+/g, " ").trim()
+          : currentStripped;
+
+        console.log("[ListeningWindow] Directed question:", transcript);
+        onDirectedQuestion(transcript);
+      } else {
+        onAmbientUtterance?.(text);
       }
     },
   };

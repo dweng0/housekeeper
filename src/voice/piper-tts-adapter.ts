@@ -19,8 +19,10 @@ export class PiperTtsAdapter implements SpeechOutput {
   }
 
   async speak(text: string, originatingNodeId: string): Promise<void> {
-    const pcm = await this.render(text);
-    const targetId = await this.resolveTarget(originatingNodeId);
+    const [pcm, targetId] = await Promise.all([
+      this.render(text),
+      this.resolveTarget(originatingNodeId),
+    ]);
     if (!targetId) {
       console.warn("[TTS] No speaker node available, dropping response");
       return;

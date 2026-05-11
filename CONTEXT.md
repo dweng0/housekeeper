@@ -74,6 +74,8 @@ _Avoid_: effect, then-clause, command
 - An **Action** references an **Actuator** (by Label)
 - A **Directed Question** is scoped to the active **Resident** session, or falls back to household-level memory when no Resident is identified
 - A **Directed Question** may result in a new **Automation** being created
+- A **Directed Question** that receives a spoken response opens a **Conversation Context** on the originating Voice Node
+- A **Conversation Context** accepts **Follow-up Utterances** without requiring the System Name
 - A **Device** must be registered (have a **Label**) before it can be referenced in an **Automation**
 - **Auto-discovery** can be disabled for security; when off, Devices must be registered manually via dashboard or voice
 

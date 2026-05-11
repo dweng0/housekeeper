@@ -24,6 +24,7 @@ export interface VoiceNodeHub {
   getNode(nodeId: string): VoiceNode | undefined;
   getConnectedNodes(): VoiceNode[];
   pushUtterance(nodeId: string, transcript: string): void;
+  onNodeConfirmed?(nodeId: string): void;
 }
 
 export interface ClassifyOptions {
@@ -31,10 +32,22 @@ export interface ClassifyOptions {
   residentId?: string;
   memories?: string[];
   location?: string;
+  conversationHistory?: Array<{ role: "user" | "assistant"; content: string }>;
 }
 
 export interface IntentClassifier {
   classify(opts: ClassifyOptions): Promise<ClassifiedIntent>;
+}
+
+export interface QueryContext {
+  residentId?: string;
+  memories?: string[];
+  location?: string;
+  history?: Array<{ role: string; content: string }>;
+}
+
+export interface QueryResponder {
+  respond(query: string, context?: QueryContext): Promise<string>;
 }
 
 export interface HttpApi {
@@ -85,6 +98,20 @@ export interface MemoryStore {
   clear(residentId: string): Promise<void>;
 }
 
+export interface ResponseAudioCache {
+  lookup(opts: { deviceLabel: string; command: string }): Promise<Buffer | null>;
+  lookupNotFound(): Promise<Buffer | null>;
+}
+
+export interface TtsRenderer {
+  render(text: string): Promise<Buffer>;
+}
+
+export interface ResponseTextGenerator {
+  generateVariants(opts: { deviceLabel: string; command: string; persona?: string; count: number }): Promise<string[]>;
+  generateNotFoundVariants(opts: { persona?: string; count: number }): Promise<string[]>;
+}
+
 // Domain types
 
 export interface VoiceNode {
@@ -93,6 +120,34 @@ export interface VoiceNode {
   location: string;
   capabilities: ("mic" | "speaker")[];
   confirmed: boolean;
+  transport: "websocket" | "cast";
+}
+
+export interface CastDeviceInfo {
+  uuid: string;
+  name: string;
+  host: string;
+  port: number;
+}
+
+export interface CastDiscovery {
+  start(): void;
+  stop(): void;
+  onDeviceFound(handler: (info: CastDeviceInfo) => void): void;
+  onDeviceLost(handler: (uuid: string) => void): void;
+}
+
+export interface CastClient {
+  playUrl(url: string): Promise<void>;
+  close(): void;
+}
+
+export interface CastClientFactory {
+  connect(host: string, port: number): Promise<CastClient>;
+}
+
+export interface AudioFileServer {
+  serve(audio: Buffer): Promise<{ url: string; cleanup: () => void }>;
 }
 
 export interface VoiceNodeRepository {
@@ -135,6 +190,9 @@ export interface AppConfig {
   systemName?: string;
   persona?: string;
   mqttBrokerUrl?: string;
+  responseCacheVariantCount?: number;
+  intentConfidenceThreshold?: number;
+  conversationContextTimeoutSeconds?: number;
 }
 
 export interface ClassifiedIntent {
@@ -145,4 +203,7 @@ export interface ClassifiedIntent {
   query?: string;
   residentName?: string;
   response?: string;
+  hedgedResponse?: string;
+  spokenResponse?: string;
+  intentConfidence?: number;
 }

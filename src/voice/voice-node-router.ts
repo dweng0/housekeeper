@@ -28,6 +28,10 @@ export function makeVoiceNodeRouter({ voiceNodes, hub }: RouterDeps): Router {
     const updated = { ...node, ...(label && { label }), ...(location && { location }), ...(typeof confirmed === "boolean" && { confirmed }) };
     await voiceNodes.save(updated);
 
+    if (confirmed === true && !node.confirmed) {
+      hub.onNodeConfirmed?.(node.id);
+    }
+
     if (hub.getNode(node.id)) {
       const patch: Record<string, unknown> = {};
       if (label) patch.label = label;

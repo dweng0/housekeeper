@@ -114,8 +114,10 @@
     MQTT_PORT = "1883";
     VOICE_NODE_PORT = "3001";
     PORT = "3000";
-    PIPER_VOICE = "data/piper-voices/en_US-lessac-medium.onnx";
     SYSTEM_NAME = "housekeeper";
     ZIGBEE_PORT = "/dev/ttyUSB0";
+    TTS_ENDPOINT = "http://192.168.1.112:8001";
+    TTS_MODEL = "qwen3-tts";
+    TTS_VOICE = "alloy";
   };
 }

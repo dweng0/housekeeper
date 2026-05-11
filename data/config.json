@@ -1,3 +1,6 @@
 {
-  "autoDiscovery": true
+  "autoDiscovery": true,
+  "mqttBrokerUrl": "mqtt://localhost:1883",
+  "defaultOutputNodeId": "5c5e242cde4aa24c4adf2519fc558475",
+  "conversationContextTimeoutSeconds": 30
 }

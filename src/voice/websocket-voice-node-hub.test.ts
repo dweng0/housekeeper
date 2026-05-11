@@ -3,7 +3,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import { makeWebSocketVoiceNodeHub } from "./websocket-voice-node-hub.js";
 import type { VoiceNode, VoiceNodeHub, VoiceNodeRepository } from "../ports.js";
 
-const node1: VoiceNode = { id: "node-hall", label: "Hallway", location: "downstairs hallway", capabilities: ["mic"], confirmed: false };
+const node1: VoiceNode = { id: "node-hall", label: "Hallway", location: "downstairs hallway", capabilities: ["mic"], confirmed: false, transport: "websocket" };
 
 function makeInMemoryRepository(): VoiceNodeRepository & { nodes: VoiceNode[] } {
   const nodes: VoiceNode[] = [];

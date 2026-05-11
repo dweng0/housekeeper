@@ -1,5 +1,6 @@
 import express from "express";
 import { join } from "path";
+import { rm } from "fs/promises";
 import { randomUUID } from "crypto";
 import { jsonDeviceRepository } from "./device/json-device-repository.js";
 import { jsonConfigRepository } from "./config/json-config-repository.js";
@@ -10,14 +11,26 @@ import { makeAutomationEngine } from "./automation/automation-engine.js";
 import { createMqttClient } from "./mqtt/mqtt-client.js";
 import { createZigbee2MqttGateway } from "./mqtt/zigbee2mqtt-gateway.js";
 import { makeWebSocketVoiceNodeHub } from "./voice/websocket-voice-node-hub.js";
+import { makeCastVoiceNodeHub } from "./voice/cast-voice-node-hub.js";
+import { makeCompositeVoiceNodeHub } from "./voice/composite-voice-node-hub.js";
+import { makeBonjourCastDiscovery } from "./voice/bonjour-cast-discovery.js";
+import { makeCastv2ClientFactory } from "./voice/castv2-cast-client-factory.js";
+import { makeExpressAudioFileServer } from "./voice/express-audio-file-server.js";
 import { makeJsonVoiceNodeRepository } from "./voice/json-voice-node-repository.js";
 import { makeVoiceNodeRouter } from "./voice/voice-node-router.js";
 import { makeTranscribeRouter } from "./voice/transcribe-router.js";
 import { WhisperTranscriber } from "./voice/whisper-transcriber.js";
 import { makeVoiceAutomationService } from "./voice/voice-automation-service.js";
 import { makeOpenAIIntentClassifier } from "./voice/openai-intent-classifier.js";
-import { PiperTtsAdapter } from "./voice/piper-tts-adapter.js";
+import { makeOpenAiQueryResponder } from "./voice/openai-query-responder.js";
+import { OpenAiTtsAdapter } from "./voice/openai-tts-adapter.js";
 import { makeLogStore } from "./log-store.js";
+import { makeResponseAudioCacheBuilder } from "./voice/response-audio-cache-builder.js";
+import { makeJsonResponseAudioCache } from "./voice/json-response-audio-cache.js";
+import { makeOpenAIResponseTextGenerator } from "./voice/openai-response-text-generator.js";
+import { makeOpenAITtsRenderer } from "./voice/openai-tts-renderer.js";
+import { makePiperDaemonTtsRenderer } from "./voice/piper-daemon-tts-renderer.js";
+import { PiperTtsAdapter } from "./voice/piper-tts-adapter.js";
 import type { AppConfig, Device } from "./ports.js";
 
 const app = express();
@@ -59,7 +72,17 @@ const voiceNodeDataPath = join(process.cwd(), "data", "voice-nodes.json");
 const voiceNodeRepository = makeJsonVoiceNodeRepository(voiceNodeDataPath);
 
 const voiceNodePort = Number(process.env.VOICE_NODE_PORT ?? 3001);
-const voiceNodeHub = makeWebSocketVoiceNodeHub(voiceNodeRepository, voiceNodePort);
+const wsVoiceNodeHub = makeWebSocketVoiceNodeHub(voiceNodeRepository, voiceNodePort);
+
+const castBaseUrl = process.env.CAST_BASE_URL ?? `http://localhost:${port}`;
+const castVoiceNodeHub = makeCastVoiceNodeHub({
+  repository: voiceNodeRepository,
+  discovery: makeBonjourCastDiscovery(),
+  clientFactory: makeCastv2ClientFactory(),
+  audioFileServer: makeExpressAudioFileServer(app, castBaseUrl),
+});
+
+const voiceNodeHub = makeCompositeVoiceNodeHub(wsVoiceNodeHub, castVoiceNodeHub);
 
 const classifier = makeOpenAIIntentClassifier({
   endpoint: process.env.LLM_ENDPOINT ?? "http://localhost:11434/v1",
@@ -69,12 +92,26 @@ const classifier = makeOpenAIIntentClassifier({
   config: jsonConfigRepository,
 });
 
-const piperVoice = process.env.PIPER_VOICE ?? "data/piper-voices/en_US-lessac-medium.onnx";
-const speechOutput = new PiperTtsAdapter({
-  voicePath: piperVoice,
-  voiceNodeHub,
-  config: jsonConfigRepository,
+const piperVoicePath = process.env.PIPER_VOICE_PATH;
+const speechOutput = piperVoicePath
+  ? new PiperTtsAdapter({ voicePath: piperVoicePath, voiceNodeHub, config: jsonConfigRepository })
+  : new OpenAiTtsAdapter({
+      endpoint: process.env.TTS_ENDPOINT ?? "http://localhost:8001",
+      model: process.env.TTS_MODEL,
+      voice: process.env.TTS_VOICE,
+      apiKey: process.env.TTS_API_KEY,
+      voiceNodeHub,
+      config: jsonConfigRepository,
+    });
+
+const queryResponder = makeOpenAiQueryResponder({
+  endpoint: process.env.LLM_ENDPOINT ?? "http://localhost:11434/v1",
+  model: process.env.LLM_MODEL ?? "llama3.2",
+  apiKey: process.env.LLM_API_KEY,
 });
+
+const cacheDir = join(process.cwd(), "data", "response-cache");
+const responseAudioCache = makeJsonResponseAudioCache(cacheDir);
 
 const voiceService = makeVoiceAutomationService({
   voiceNodeHub,
@@ -83,12 +120,57 @@ const voiceService = makeVoiceAutomationService({
   devices: jsonDeviceRepository,
   automations: automationRepository,
   speechOutput,
+  queryResponder,
   gateway: mqttDeviceGateway,
   logStore,
+  responseAudioCache,
+  config: jsonConfigRepository,
 });
 
 voiceService.start();
 discovery.start();
+
+const ttsRenderer = piperVoicePath
+  ? makePiperDaemonTtsRenderer(piperVoicePath)
+  : makeOpenAITtsRenderer({
+      endpoint: process.env.TTS_ENDPOINT ?? "http://localhost:8001",
+      model: process.env.TTS_MODEL,
+      voice: process.env.TTS_VOICE,
+      apiKey: process.env.TTS_API_KEY,
+    });
+
+const startupConfig = await jsonConfigRepository.get();
+let cacheBuilder = makeResponseAudioCacheBuilder({
+  textGenerator: makeOpenAIResponseTextGenerator({
+    endpoint: process.env.LLM_ENDPOINT ?? "http://localhost:11434/v1",
+    model: process.env.LLM_MODEL ?? "llama3.2",
+    apiKey: process.env.LLM_API_KEY,
+  }),
+  ttsRenderer,
+  cacheDir,
+  variantCount: startupConfig.responseCacheVariantCount ?? 3,
+});
+
+console.log("[CacheBuilder] startup diff running…");
+jsonDeviceRepository.findAll()
+  .then((devices) => cacheBuilder.build(devices))
+  .then(() => console.log("[CacheBuilder] startup diff complete"))
+  .catch((err) => console.error("[CacheBuilder] startup error:", err));
+
+app.post("/api/tts/speak", async (req, res) => {
+  const { text, nodeId } = req.body as { text?: string; nodeId?: string };
+  if (!text) { res.status(400).json({ error: "text required" }); return; }
+  try {
+    const config = await jsonConfigRepository.get();
+    const targetId = nodeId ?? config.defaultOutputNodeId;
+    if (!targetId) { res.status(400).json({ error: "no target node" }); return; }
+    await speechOutput.speak(text, targetId);
+    res.json({ ok: true, targetId });
+  } catch (err) {
+    console.error("[TTS] speak failed:", err);
+    res.status(500).json({ error: String(err) });
+  }
+});
 
 app.get("/health", (_req, res) => {
   res.json({
@@ -116,10 +198,36 @@ app.get("/api/config", async (_req, res) => {
 
 app.put("/api/config", async (req, res) => {
   const current = await jsonConfigRepository.get();
-  const { defaultOutputNodeId, systemName, persona } = req.body as Partial<AppConfig>;
-  const updated: AppConfig = { ...current, defaultOutputNodeId, systemName, persona };
+  const { defaultOutputNodeId, systemName, persona, responseCacheVariantCount, intentConfidenceThreshold } = req.body as Partial<AppConfig>;
+  const updated: AppConfig = { ...current, defaultOutputNodeId, systemName, persona, responseCacheVariantCount, intentConfidenceThreshold };
   await jsonConfigRepository.save(updated);
   res.json(updated);
+});
+
+app.post("/api/voice/response-cache/rebuild", async (_req, res) => {
+  res.status(202).json({ status: "rebuilding" });
+
+  try {
+    const cfg = await jsonConfigRepository.get();
+    const variantCount = cfg.responseCacheVariantCount ?? 3;
+    await rm(cacheDir, { recursive: true, force: true });
+    const newBuilder = makeResponseAudioCacheBuilder({
+      textGenerator: makeOpenAIResponseTextGenerator({
+        endpoint: process.env.LLM_ENDPOINT ?? "http://localhost:11434/v1",
+        model: process.env.LLM_MODEL ?? "llama3.2",
+        apiKey: process.env.LLM_API_KEY,
+      }),
+      ttsRenderer,
+      cacheDir,
+      variantCount,
+    });
+    const devices = await jsonDeviceRepository.findAll();
+    await newBuilder.build(devices);
+    cacheBuilder = newBuilder;
+    console.log("[CacheBuilder] full rebuild complete");
+  } catch (err) {
+    console.error("[CacheBuilder] rebuild error:", err);
+  }
 });
 
 // --- Unregistered devices (auto-discovery) ---
@@ -166,6 +274,7 @@ app.post("/api/devices", async (req, res) => {
   const device: Device = { id: randomUUID(), label, topic, type };
   await jsonDeviceRepository.save(device);
   res.status(201).json(device);
+  cacheBuilder?.buildForDevice(device).catch((err) => console.error("[CacheBuilder] device add error:", err));
 });
 
 app.put("/api/devices/:id", async (req, res) => {
@@ -186,6 +295,7 @@ app.put("/api/devices/:id", async (req, res) => {
   const device: Device = { id, label, topic, type };
   await jsonDeviceRepository.save(device);
   res.json(device);
+  cacheBuilder?.buildForDevice(device).catch((err) => console.error("[CacheBuilder] device update error:", err));
 });
 
 app.delete("/api/devices/:id", async (req, res) => {

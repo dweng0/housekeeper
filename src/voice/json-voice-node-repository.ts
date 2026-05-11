@@ -5,7 +5,8 @@ import type { VoiceNode, VoiceNodeRepository } from "../ports.js";
 async function read(filePath: string): Promise<VoiceNode[]> {
   try {
     const raw = await readFile(filePath, "utf-8");
-    return JSON.parse(raw) as VoiceNode[];
+    const nodes = JSON.parse(raw) as Partial<VoiceNode>[];
+    return nodes.map((n) => ({ transport: "websocket", ...n } as VoiceNode));
   } catch {
     return [];
   }

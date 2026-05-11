@@ -1,17 +1,25 @@
 import { randomUUID } from "crypto";
 import type {
   AutomationRepository,
+  ConfigRepository,
   DeviceGateway,
   DeviceRepository,
   IntentClassifier,
   MemoryStore,
+  QueryResponder,
+  ResponseAudioCache,
   VoiceNodeHub,
   SpeechOutput,
 } from "../ports.js";
+import { nullResponseAudioCache } from "./null-response-audio-cache.js";
 import type { ResidentSession } from "../memory/resident-session.js";
 import { makeListeningWindow } from "./listening-window.js";
 import type { ListeningWindow } from "./listening-window.js";
 import type { LogStore, DirectedQuestionOutcome } from "../log-store.js";
+import { makeConversationContext } from "./conversation-context.js";
+import type { ConversationContext } from "./conversation-context.js";
+
+const HISTORY_TOKEN_BUDGET = 4_000;
 
 interface VoiceAutomationServiceDeps {
   voiceNodeHub: VoiceNodeHub;
@@ -20,16 +28,26 @@ interface VoiceAutomationServiceDeps {
   devices: DeviceRepository;
   automations: AutomationRepository;
   speechOutput: SpeechOutput;
+  queryResponder?: QueryResponder;
   gateway?: DeviceGateway;
   logStore?: LogStore;
   session?: ResidentSession;
   memoryStore?: MemoryStore;
+  responseAudioCache?: ResponseAudioCache;
+  config?: ConfigRepository;
 }
 
 export interface VoiceAutomationService {
   start(): void;
   stop(): void;
 }
+
+function toSpeakableLength(text: string, maxSentences = 2): string {
+  const sentences = text.match(/[^.!?]+[.!?]+/g) ?? [text];
+  return sentences.slice(0, maxSentences).join(" ").trim();
+}
+
+const DEFAULT_CONFIDENCE_THRESHOLD = 0.7;
 
 export function makeVoiceAutomationService({
   voiceNodeHub,
@@ -38,20 +56,61 @@ export function makeVoiceAutomationService({
   devices,
   automations,
   speechOutput,
+  queryResponder,
   gateway,
   logStore,
   session,
   memoryStore,
+  responseAudioCache = nullResponseAudioCache,
+  config,
 }: VoiceAutomationServiceDeps): VoiceAutomationService {
   const windows = new Map<string, ListeningWindow>();
+  const contexts = new Map<string, ConversationContext>();
+  let contextTimeoutMs = 30_000;
+
+  function getContext(nodeId: string): ConversationContext {
+    if (!contexts.has(nodeId)) {
+      contexts.set(nodeId, makeConversationContext(contextTimeoutMs));
+    }
+    return contexts.get(nodeId)!;
+  }
 
   function getWindow(nodeId: string): ListeningWindow {
     if (!windows.has(nodeId)) {
       windows.set(nodeId, makeListeningWindow({
         systemName,
+        onAmbientUtterance: async (text) => {
+          const ctx = getContext(nodeId);
+          if (!ctx.isOpen()) return;
+          const history = ctx.getHistory(HISTORY_TOKEN_BUDGET);
+          const residentId = session?.getResidentId();
+          const memories = memoryStore && residentId
+            ? await memoryStore.search(residentId, text)
+            : [];
+          const originatingNode = voiceNodeHub.getNode(nodeId);
+          const intent = await classifier.classify({
+            utterance: text,
+            residentId,
+            memories,
+            location: originatingNode?.location,
+            conversationHistory: history,
+          });
+          const spoken = intent.spokenResponse ?? intent.response;
+          if (intent.type === "query" && spoken) {
+            await speechOutput.speak(spoken, nodeId);
+            ctx.addTurn(text, spoken);
+          }
+        },
         onDirectedQuestion: async (transcript) => {
+          const cfg = config ? await config.get() : null;
+          const threshold = cfg?.intentConfidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD;
+          if (cfg?.conversationContextTimeoutSeconds !== undefined) {
+            contextTimeoutMs = cfg.conversationContextTimeoutSeconds * 1_000;
+          }
+          getContext(nodeId).reset();
           let intent = { type: "unknown" } as import("../ports.js").ClassifiedIntent;
           let outcome: DirectedQuestionOutcome = "unknown-intent";
+          let respondedText: string | undefined;
 
           try {
             const residentId = session?.getResidentId();
@@ -65,14 +124,40 @@ export function makeVoiceAutomationService({
               memories,
               location: originatingNode?.location,
             });
+            const isLowConfidence = intent.intentConfidence !== undefined && intent.intentConfidence < threshold;
+            const activeResponse = isLowConfidence ? (intent.hedgedResponse ?? intent.response) : intent.response;
+
+            if (activeResponse) {
+              intent = { ...intent, spokenResponse: toSpeakableLength(activeResponse) };
+            }
             console.log("[VoiceAutomation] Classified intent:", JSON.stringify(intent));
 
             if (intent.residentName) {
               session?.setActive(intent.residentName);
             }
 
-            if (intent.type === "set-resident") {
-              if (intent.response) await speechOutput.speak(intent.response, nodeId);
+            const spoken = intent.spokenResponse ?? intent.response;
+
+            if (intent.type === "query") {
+              if (spoken) {
+                await speechOutput.speak(spoken, nodeId);
+                respondedText = spoken;
+                outcome = "device-controlled";
+              } else if (queryResponder && intent.query) {
+                const reply = await queryResponder.respond(intent.query, {
+                  residentId: session?.getResidentId(),
+                  memories,
+                  location: voiceNodeHub.getNode(nodeId)?.location,
+                });
+                await speechOutput.speak(reply, nodeId);
+                respondedText = reply;
+                outcome = "device-controlled";
+              } else {
+                outcome = "unknown-intent";
+              }
+            } else if (intent.type === "set-resident") {
+              if (spoken) await speechOutput.speak(spoken, nodeId);
+              getContext(nodeId).reset();
               outcome = "unknown-intent";
             } else if (intent.type === "device-control") {
               if (!intent.deviceLabel || !intent.command) {
@@ -80,12 +165,29 @@ export function makeVoiceAutomationService({
               } else {
                 const device = await devices.findByLabel(intent.deviceLabel);
                 if (!device) {
-                  await speechOutput.speak(`I don't know a device called ${intent.deviceLabel}`, nodeId);
+                  const notFoundAudio = await responseAudioCache.lookupNotFound();
+                  if (notFoundAudio) {
+                    await voiceNodeHub.sendTts(nodeId, notFoundAudio);
+                  } else {
+                    await speechOutput.speak(`I don't know a device called ${intent.deviceLabel}`, nodeId);
+                  }
                   outcome = "unknown-device";
                 } else {
                   const resolvedCommand = device.commandMap?.[intent.command] ?? intent.command;
                   await gateway?.publish(device.topic, resolvedCommand);
-                  if (intent.response) await speechOutput.speak(intent.response, nodeId);
+                  if (spoken) {
+                    if (!isLowConfidence) {
+                      const cached = await responseAudioCache.lookup({ deviceLabel: intent.deviceLabel, command: intent.command });
+                      if (cached) {
+                        await voiceNodeHub.sendTts(nodeId, cached);
+                      } else {
+                        await speechOutput.speak(spoken, nodeId);
+                      }
+                    } else {
+                      await speechOutput.speak(spoken, nodeId);
+                    }
+                    respondedText = spoken;
+                  }
                   outcome = "device-controlled";
                 }
               }
@@ -124,7 +226,10 @@ export function makeVoiceAutomationService({
                     outcome = "duplicate-automation";
                   } else {
                     await automations.save({ id: randomUUID(), enabled, trigger, actions });
-                    if (intent.response) await speechOutput.speak(intent.response, nodeId);
+                    if (spoken) {
+                      await speechOutput.speak(spoken, nodeId);
+                      respondedText = spoken;
+                    }
                     outcome = "automation-created";
                     if (memoryStore && residentId) {
                       const fact = `When ${trigger.deviceLabel} ${trigger.event}, ${actions.map((a) => `${a.command} ${a.deviceLabel}`).join(" and ")}`;
@@ -138,6 +243,9 @@ export function makeVoiceAutomationService({
             console.error("[VoiceAutomation] error:", err instanceof Error ? err.message : err);
             outcome = "error";
           } finally {
+            if (respondedText) {
+              getContext(nodeId).addTurn(transcript, respondedText);
+            }
             logStore?.append({
               type: "directed-question",
               timestamp: new Date().toISOString(),
@@ -165,6 +273,7 @@ export function makeVoiceAutomationService({
     stop() {
       voiceNodeHub.stop();
       windows.clear();
+      contexts.clear();
     },
   };
 }

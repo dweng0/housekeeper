@@ -12,6 +12,9 @@ client/dist/
 # Large model files
 data/whisper-models/*.bin
 
+# Generated response audio cache
+data/response-cache/
+
 # Zigbee2MQTT runtime files
 data/zigbee2mqtt/database.db
 data/zigbee2mqtt/coordinator_backup.json

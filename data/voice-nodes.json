@@ -1,5 +1,6 @@
 [
   {
+    "transport": "websocket",
     "id": "595fc2a5-7ed6-4a51-89da-063af48184bc",
     "label": "XPS",
     "location": "everywhere",
@@ -8,5 +9,25 @@
       "speaker"
     ],
     "confirmed": true
+  },
+  {
+    "transport": "cast",
+    "id": "5c5e242cde4aa24c4adf2519fc558475",
+    "label": "Google-Nest-Mini-5c5e242cde4aa24c4adf2519fc558475",
+    "location": "Office",
+    "capabilities": [
+      "speaker"
+    ],
+    "confirmed": true
+  },
+  {
+    "transport": "cast",
+    "id": "255323cc3e1bbb173da20170848edd09",
+    "label": "OLED65G36LA-255323cc3e1bbb173da20170848edd09",
+    "location": "",
+    "capabilities": [
+      "speaker"
+    ],
+    "confirmed": false
   }
 ]

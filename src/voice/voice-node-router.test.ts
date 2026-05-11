@@ -4,8 +4,8 @@ import request from "supertest";
 import type { VoiceNode, VoiceNodeHub, VoiceNodeRepository } from "../ports.js";
 import { makeVoiceNodeRouter } from "./voice-node-router.js";
 
-const confirmed: VoiceNode = { id: "node-hall", label: "Hallway", location: "downstairs hallway", capabilities: ["mic"], confirmed: true };
-const unconfirmed: VoiceNode = { id: "node-bed", label: "Bedroom", location: "upstairs bedroom", capabilities: ["mic", "speaker"], confirmed: false };
+const confirmed: VoiceNode = { id: "node-hall", label: "Hallway", location: "downstairs hallway", capabilities: ["mic"], confirmed: true, transport: "websocket" };
+const unconfirmed: VoiceNode = { id: "node-bed", label: "Bedroom", location: "upstairs bedroom", capabilities: ["mic", "speaker"], confirmed: false, transport: "websocket" };
 
 function makeRepo(initial: VoiceNode[] = []): VoiceNodeRepository & { nodes: VoiceNode[] } {
   const nodes = [...initial];
@@ -28,6 +28,7 @@ function makeHub(connected: VoiceNode[] = []): VoiceNodeHub & { configsSent: { n
     start: () => {},
     stop: () => {},
     onUtterance: () => {},
+    pushUtterance: () => {},
     sendTts: async () => {},
     sendConfig: async (nodeId, patch) => { configsSent.push({ nodeId, patch }); },
     getNode: (id) => connected.find((n) => n.id === id),
