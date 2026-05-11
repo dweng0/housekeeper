@@ -29,11 +29,16 @@ Known device labels:
 ${labelList}${memorySection}${locationSection}
 
 Return JSON matching one of these shapes:
-- { "type": "device-control", "deviceLabel": "<label>", "command": "<cmd>", "response": "<spoken confirmation>", "hedgedResponse": "<uncertain variant>", "intentConfidence": <0-1>, "residentName": "<name if identified>" }
-- { "type": "create-automation", "automation": { "enabled": true, "trigger": { "deviceLabel": "<label>", "event": "<event>" }, "actions": [{ "deviceLabel": "<label>", "command": "<cmd>", "durationSeconds": <n>, "reverseCommand": "<cmd>" }] }, "response": "<spoken confirmation>", "hedgedResponse": "<uncertain variant>", "intentConfidence": <0-1>, "residentName": "<name if identified>" }
-- { "type": "query", "query": "<question>", "response": "<conversational answer, 2-3 sentences, spoken English, no markdown>", "hedgedResponse": "<uncertain variant>", "intentConfidence": <0-1> }
-- { "type": "set-resident", "residentName": "<name>", "response": "<warm acknowledgement>", "hedgedResponse": "<uncertain variant>", "intentConfidence": <0-1> }
+- { "type": "device-control", "deviceLabel": "<label>", "command": "<cmd>", "response": "<spoken confirmation>", "intentConfidence": <0-1>, "residentName": "<name if identified>" }
+- { "type": "create-automation", "automation": { "enabled": true, "trigger": { "deviceLabel": "<label>", "event": "<event>" }, "actions": [{ "deviceLabel": "<label>", "command": "<cmd>", "durationSeconds": <n>, "reverseCommand": "<cmd>" }] }, "response": "<spoken confirmation>", "intentConfidence": <0-1>, "residentName": "<name if identified>" }
+- { "type": "query", "query": "<question>", "response": "<conversational answer, 2-3 sentences, spoken English, no markdown>", "intentConfidence": <0-1> }
+- { "type": "set-resident", "residentName": "<name>", "response": "<warm acknowledgement>", "intentConfidence": <0-1> }
 - { "type": "unknown" }
+
+When intentConfidence < 0.7, return clarifyingQuestion instead of response:
+- { "type": "device-control", "deviceLabel": "<label>", "command": "<cmd>", "clarifyingQuestion": "<ask user to disambiguate>", "intentConfidence": <0-1> }
+- { "type": "query", "query": "<question>", "clarifyingQuestion": "<ask user to clarify>", "intentConfidence": <0-1> }
+- (clarifyingQuestion omitted for set-resident and create-automation unless they involve unclear references)
 
 Use "device-control" for immediate commands to control devices (e.g. "turn on the kitchen light", "switch off the fan"). Use the exact label from the known list if it matches; otherwise use the device name as spoken — the system will handle unregistered devices.
 Use "create-automation" for setting up rules/triggers (e.g. "when the front door opens turn on the porch light").
@@ -43,7 +48,7 @@ Use "unknown" only if the utterance is not addressed to the assistant or the int
 For the "command" field use only: on, off, toggle, open, close, lock, unlock, brightness_up, brightness_down.
 The "response" field is spoken aloud — keep it brief, natural, and in character. If the utterance identifies a resident alongside an action, include "residentName" on that intent and address them by name in "response".
 The "intentConfidence" field is a 0–1 float: your certainty that you correctly identified the intent from the utterance. Use 1.0 for clear, unambiguous utterances; lower values when the utterance is vague, fragmented, or could mean multiple things.
-The "hedgedResponse" field is a variant of "response" phrased to signal uncertainty — e.g. "I think you're asking me to turn on the hallway light — done." Always include it alongside "response" for all non-unknown types.
+The "clarifyingQuestion" field is used when intentConfidence < 0.7. Instead of acting on an uncertain interpretation, ask the user to clarify (e.g. "Did you mean the hallway light or the kitchen light?"). Omit "response" and include "clarifyingQuestion" in these low-confidence cases.
 Return only valid JSON, no markdown.`;
 
   if (!persona) return basePrompt;

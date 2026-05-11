@@ -81,7 +81,7 @@ One WAV file within a Pre-rendered Response or the `__not_found__` pool. Selecte
 _Avoid_: audio file, take, sample
 
 **Conversation Context**:
-The active per-Voice-Node thread of exchanges that opens after a Directed Question receives a spoken response. While open, subsequent Utterances are treated as Follow-up Utterances and routed to the system without requiring the System Name. Scoped per Voice Node. Resets on: timeout (configurable, default 30s), a new Directed Question, or a Resident change (`set-resident` intent).
+The active per-Voice-Node thread of exchanges that opens after a Directed Question receives a spoken response. While open, subsequent Utterances are treated as Follow-up Utterances and routed to the system without requiring the System Name. Scoped per Voice Node. Resets on: a new Directed Question, a Resident change (`set-resident` intent), or when conversation history exceeds the token budget.
 _Avoid_: context window, conversation session, dialogue state
 
 **Follow-up Utterance**:
@@ -122,9 +122,17 @@ In both cases: if unconfirmed, the node surfaces in the dashboard. If already re
 
 ## TTS Delivery
 
-TTS audio is rendered by piper on the server (consistent voice across all nodes regardless of transport).
+TTS audio is rendered by Kokoro (OpenAI-compatible HTTP endpoint) on the server. Kokoro streams PCM chunks sentence-by-sentence. Two delivery paths exist depending on whether the response is pre-rendered (cache hit) or live (cache miss).
 
-- **WebSocket Node**: rendered PCM buffer is pushed directly over the WebSocket connection.
-- **Cast Node**: rendered buffer is written to a temp file, served over HTTP by the server, and the Cast device is instructed to fetch and play that URL via the Cast protocol (TLS, port 8009).
+**Cache hit** — complete PCM buffer already available. Hub delivers via `sendTts(nodeId, Buffer)`.
+
+**Cache miss** — Kokoro streams chunks progressively. Hub delivers via `sendTtsStream(nodeId, AsyncIterable<Buffer>)`.
+
+- **WebSocket Node**: each path sends framed messages — `{"type":"tts_stream_start"}` JSON, then one or more raw PCM binary frames, then `{"type":"tts_stream_end"}` JSON. The node maintains a persistent open `OutputStream` across chunks; `tts_stream_start` closes any in-progress stream and opens a fresh one (interrupt semantics).
+- **Cast Node**: a streaming HTTP route is registered immediately and the Cast device is sent the URL. The route writes an infinite-size WAV header first (`0xFFFFFFFF` data length), then pipes raw PCM chunks as they arrive from Kokoro. Cast device begins progressive playback before render completes.
 
 The hub owns transport-specific delivery. The TTS adapter is oblivious to transport.
+
+**TTS Stream**:
+The sequence of raw PCM chunks rendered progressively by Kokoro for a single spoken response. Bounded by `tts_stream_start` and `tts_stream_end` framing messages on WebSocket; delivered as a streaming WAV HTTP response for Cast Nodes.
+_Avoid_: audio stream, streaming response, chunked audio

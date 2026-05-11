@@ -1,26 +1,13 @@
-import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { makeConversationContext } from "./conversation-context.js";
 
-beforeEach(() => vi.useFakeTimers());
-afterEach(() => vi.useRealTimers());
-
 describe("ConversationContext", () => {
-  it("reset clears all turns and closes the context immediately", () => {
-    const ctx = makeConversationContext(5_000);
+  it("reset clears all turns and closes the context", () => {
+    const ctx = makeConversationContext();
     ctx.addTurn("hello", "hi");
     ctx.reset();
     expect(ctx.isOpen()).toBe(false);
     expect(ctx.getHistory(10_000)).toEqual([]);
-  });
-
-  it("reset cancels the expiry timer so no late close occurs", () => {
-    const ctx = makeConversationContext(5_000);
-    ctx.addTurn("hello", "hi");
-    ctx.reset();
-    ctx.addTurn("new start", "fresh");
-    vi.advanceTimersByTime(5_001);
-    // The pre-reset timer should not have interfered — new turn's timer fires here
-    expect(ctx.isOpen()).toBe(false);
   });
 
   it("isOpen returns false before any turn is added", () => {
@@ -28,27 +15,17 @@ describe("ConversationContext", () => {
     expect(ctx.isOpen()).toBe(false);
   });
 
-  it("isOpen returns true immediately after addTurn", () => {
+  it("isOpen returns true after addTurn", () => {
     const ctx = makeConversationContext();
     ctx.addTurn("hello", "hi");
     expect(ctx.isOpen()).toBe(true);
   });
 
-  it("isOpen returns false after timeout elapses with no new turn", () => {
-    const ctx = makeConversationContext(5_000);
+  it("isOpen returns false after reset", () => {
+    const ctx = makeConversationContext();
     ctx.addTurn("hello", "hi");
-    vi.advanceTimersByTime(5_001);
-    expect(ctx.isOpen()).toBe(false);
-  });
-
-  it("addTurn resets the expiry timer", () => {
-    const ctx = makeConversationContext(5_000);
-    ctx.addTurn("hello", "hi");
-    vi.advanceTimersByTime(4_000);
-    ctx.addTurn("follow up", "sure");
-    vi.advanceTimersByTime(4_000); // 8s total but timer was reset at 4s
     expect(ctx.isOpen()).toBe(true);
-    vi.advanceTimersByTime(1_001); // now past 5s since last turn
+    ctx.reset();
     expect(ctx.isOpen()).toBe(false);
   });
 

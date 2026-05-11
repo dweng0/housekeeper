@@ -66,11 +66,10 @@ export function makeVoiceAutomationService({
 }: VoiceAutomationServiceDeps): VoiceAutomationService {
   const windows = new Map<string, ListeningWindow>();
   const contexts = new Map<string, ConversationContext>();
-  let contextTimeoutMs = 30_000;
 
   function getContext(nodeId: string): ConversationContext {
     if (!contexts.has(nodeId)) {
-      contexts.set(nodeId, makeConversationContext(contextTimeoutMs));
+      contexts.set(nodeId, makeConversationContext());
     }
     return contexts.get(nodeId)!;
   }
@@ -82,6 +81,10 @@ export function makeVoiceAutomationService({
         onAmbientUtterance: async (text) => {
           const ctx = getContext(nodeId);
           if (!ctx.isOpen()) return;
+
+          const cfg = config ? await config.get() : null;
+          const threshold = cfg?.intentConfidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD;
+
           const history = ctx.getHistory(HISTORY_TOKEN_BUDGET);
           const residentId = session?.getResidentId();
           const memories = memoryStore && residentId
@@ -95,18 +98,100 @@ export function makeVoiceAutomationService({
             location: originatingNode?.location,
             conversationHistory: history,
           });
-          const spoken = intent.spokenResponse ?? intent.response;
-          if (intent.type === "query" && spoken) {
-            await speechOutput.speak(spoken, nodeId);
-            ctx.addTurn(text, spoken);
+
+          const isLowConfidence = intent.intentConfidence !== undefined && intent.intentConfidence < threshold;
+          let spokenResponse: string | undefined;
+
+          try {
+            // Determine what to speak: clarifyingQuestion on low confidence, otherwise response
+            if (isLowConfidence && intent.clarifyingQuestion) {
+              spokenResponse = intent.clarifyingQuestion;
+              await speechOutput.speak(spokenResponse, nodeId);
+            } else if (intent.type === "query") {
+              const spoken = intent.spokenResponse ?? intent.response;
+              if (spoken) {
+                await speechOutput.speak(spoken, nodeId);
+                spokenResponse = spoken;
+              } else if (queryResponder && intent.query) {
+                const reply = await queryResponder.respond(intent.query, {
+                  residentId,
+                  memories,
+                  location: originatingNode?.location,
+                });
+                await speechOutput.speak(reply, nodeId);
+                spokenResponse = reply;
+              }
+            } else if (intent.type === "set-resident") {
+              const spoken = intent.spokenResponse ?? intent.response;
+              if (spoken) {
+                await speechOutput.speak(spoken, nodeId);
+                spokenResponse = spoken;
+              }
+              ctx.reset();
+            } else if (intent.type === "device-control" && !isLowConfidence) {
+              const spoken = intent.spokenResponse ?? intent.response;
+              if (intent.deviceLabel && intent.command) {
+                const device = await devices.findByLabel(intent.deviceLabel);
+                if (device) {
+                  const resolvedCommand = device.commandMap?.[intent.command] ?? intent.command;
+                  await gateway?.publish(device.topic, resolvedCommand);
+                  if (spoken) {
+                    const cached = await responseAudioCache.lookup({ deviceLabel: intent.deviceLabel, command: intent.command });
+                    if (cached) {
+                      await voiceNodeHub.sendTts(nodeId, cached);
+                    } else {
+                      await speechOutput.speak(spoken, nodeId);
+                    }
+                    spokenResponse = spoken;
+                  }
+                } else if (spoken) {
+                  await speechOutput.speak(`I don't know a device called ${intent.deviceLabel}`, nodeId);
+                }
+              }
+            } else if (intent.type === "create-automation" && !isLowConfidence && intent.automation) {
+              const { trigger, actions, enabled } = intent.automation;
+              const triggerDevice = await devices.findByLabel(trigger.deviceLabel);
+              if (triggerDevice) {
+                let unknownAction: string | null = null;
+                for (const action of actions) {
+                  if (!(await devices.findByLabel(action.deviceLabel))) {
+                    unknownAction = action.deviceLabel;
+                    break;
+                  }
+                }
+                if (!unknownAction) {
+                  const existing = await automations.findAll();
+                  const duplicate = existing.find(
+                    (a) =>
+                      a.trigger.deviceLabel === trigger.deviceLabel &&
+                      a.trigger.event === trigger.event &&
+                      a.actions[0]?.deviceLabel === actions[0]?.deviceLabel,
+                  );
+                  if (!duplicate) {
+                    await automations.save({ id: randomUUID(), enabled, trigger, actions });
+                    const spoken = intent.spokenResponse ?? intent.response;
+                    if (spoken) {
+                      await speechOutput.speak(spoken, nodeId);
+                      spokenResponse = spoken;
+                    }
+                    if (memoryStore && residentId) {
+                      const fact = `When ${trigger.deviceLabel} ${trigger.event}, ${actions.map((a) => `${a.command} ${a.deviceLabel}`).join(" and ")}`;
+                      await memoryStore.store(residentId, fact);
+                    }
+                  }
+                }
+              }
+            }
+          } catch (err) {
+            console.error("[VoiceAutomation] ambient utterance error:", err instanceof Error ? err.message : err);
+          } finally {
+            // Always add turn to context, even for unknown or clarifications
+            ctx.addTurn(text, spokenResponse ?? "");
           }
         },
         onDirectedQuestion: async (transcript) => {
           const cfg = config ? await config.get() : null;
           const threshold = cfg?.intentConfidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD;
-          if (cfg?.conversationContextTimeoutSeconds !== undefined) {
-            contextTimeoutMs = cfg.conversationContextTimeoutSeconds * 1_000;
-          }
           getContext(nodeId).reset();
           let intent = { type: "unknown" } as import("../ports.js").ClassifiedIntent;
           let outcome: DirectedQuestionOutcome = "unknown-intent";
@@ -125,7 +210,7 @@ export function makeVoiceAutomationService({
               location: originatingNode?.location,
             });
             const isLowConfidence = intent.intentConfidence !== undefined && intent.intentConfidence < threshold;
-            const activeResponse = isLowConfidence ? (intent.hedgedResponse ?? intent.response) : intent.response;
+            const activeResponse = isLowConfidence ? (intent.clarifyingQuestion ?? intent.response) : intent.response;
 
             if (activeResponse) {
               intent = { ...intent, spokenResponse: toSpeakableLength(activeResponse) };

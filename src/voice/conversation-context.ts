@@ -10,21 +10,14 @@ export interface ConversationContext {
   reset(): void;
 }
 
-export function makeConversationContext(timeoutMs = 30_000): ConversationContext {
+export function makeConversationContext(): ConversationContext {
   let turns: ConversationTurn[] = [];
-  let timer: ReturnType<typeof setTimeout> | null = null;
   let open = false;
-
-  function resetTimer() {
-    if (timer) clearTimeout(timer);
-    open = true;
-    timer = setTimeout(() => { open = false; }, timeoutMs);
-  }
 
   return {
     addTurn(userUtterance, systemResponse) {
       turns.push({ userUtterance, systemResponse });
-      resetTimer();
+      open = true;
     },
 
     getHistory(tokenBudget) {
@@ -42,13 +35,11 @@ export function makeConversationContext(timeoutMs = 30_000): ConversationContext
     },
 
     isOpen() {
-      return open;
+      return open && turns.length > 0;
     },
 
     reset() {
       turns = [];
-      if (timer) clearTimeout(timer);
-      timer = null;
       open = false;
     },
   };

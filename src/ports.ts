@@ -20,6 +20,7 @@ export interface VoiceNodeHub {
   stop(): void;
   onUtterance(handler: (nodeId: string, transcript: string) => void): void;
   sendTts(nodeId: string, audio: Buffer): Promise<void>;
+  sendTtsStream(nodeId: string, chunks: AsyncIterable<Buffer>): Promise<void>;
   sendConfig(nodeId: string, patch: VoiceNodeConfigPatch): Promise<void>;
   getNode(nodeId: string): VoiceNode | undefined;
   getConnectedNodes(): VoiceNode[];
@@ -148,6 +149,7 @@ export interface CastClientFactory {
 
 export interface AudioFileServer {
   serve(audio: Buffer): Promise<{ url: string; cleanup: () => void }>;
+  serveStream(chunks: AsyncIterable<Buffer>): Promise<{ url: string; cleanup: () => void }>;
 }
 
 export interface VoiceNodeRepository {
@@ -193,6 +195,7 @@ export interface AppConfig {
   responseCacheVariantCount?: number;
   intentConfidenceThreshold?: number;
   conversationContextTimeoutSeconds?: number;
+  ttsStreamingEnabled?: boolean;
 }
 
 export interface ClassifiedIntent {
@@ -204,6 +207,7 @@ export interface ClassifiedIntent {
   residentName?: string;
   response?: string;
   hedgedResponse?: string;
+  clarifyingQuestion?: string;
   spokenResponse?: string;
   intentConfidence?: number;
 }
