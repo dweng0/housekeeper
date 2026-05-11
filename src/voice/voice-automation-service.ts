@@ -104,9 +104,9 @@ export function makeVoiceAutomationService({
           let spokenResponse: string | undefined;
 
           try {
-            // Determine what to speak: clarifyingQuestion on low confidence, otherwise response
-            if (isLowConfidence && intent.clarifyingQuestion) {
-              spokenResponse = intent.clarifyingQuestion;
+            // Determine what to speak: clarifyingQuestion on low confidence, fallback to hedgedResponse or response
+            if (isLowConfidence && (intent.clarifyingQuestion || intent.hedgedResponse)) {
+              spokenResponse = intent.clarifyingQuestion ?? intent.hedgedResponse;
               await speechOutput.speak(spokenResponse, nodeId);
             } else if (intent.type === "query") {
               const spoken = intent.spokenResponse ?? intent.response;
@@ -211,7 +211,7 @@ export function makeVoiceAutomationService({
               location: originatingNode?.location,
             });
             const isLowConfidence = intent.intentConfidence !== undefined && intent.intentConfidence < threshold;
-            const activeResponse = isLowConfidence ? (intent.clarifyingQuestion ?? intent.response) : intent.response;
+            const activeResponse = isLowConfidence ? (intent.clarifyingQuestion ?? intent.hedgedResponse ?? intent.response) : intent.response;
 
             if (activeResponse) {
               intent = { ...intent, spokenResponse: toSpeakableLength(activeResponse) };

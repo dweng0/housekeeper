@@ -43,6 +43,7 @@ function makeVoiceNodeHub() {
     onUtterance: (h) => { handler = h; },
     pushUtterance: vi.fn(),
     sendTts: vi.fn(),
+    sendTtsStream: vi.fn(async () => {}),
     sendConfig: vi.fn(),
     getNode: vi.fn(),
     getConnectedNodes: vi.fn(() => []),
@@ -735,7 +736,7 @@ describe("VoiceAutomationService", () => {
   });
 
   describe("Conversation Context", () => {
-    it("conversationContextTimeoutSeconds from config controls how long context stays open", async () => {
+    it("context stays open indefinitely; closes only on new Directed Question", async () => {
       const { hub, emit } = makeVoiceNodeHub();
       const { output, spoken } = makeSpeechOutput();
       const { gateway } = makeGateway();
@@ -747,10 +748,13 @@ describe("VoiceAutomationService", () => {
         response: "Done — porch light is on.",
       };
       let call = 0;
-      const classifySpy = vi.fn().mockImplementation(async () => call++ === 0 ? firstIntent : { type: "unknown" });
+      const classifySpy = vi.fn().mockImplementation(async () => {
+        if (call++ === 0) return firstIntent;
+        return { type: "query", response: "It is off." };
+      });
 
       const mockConfig: ConfigRepository = {
-        get: async () => ({ autoDiscovery: false, conversationContextTimeoutSeconds: 0 }),
+        get: async () => ({ autoDiscovery: false }),
         save: async () => {},
       };
 
@@ -768,14 +772,14 @@ describe("VoiceAutomationService", () => {
       service.start();
       emit("housekeeper turn on the porch light");
       await vi.waitFor(() => expect(spoken).toHaveLength(1));
-      // 0ms timeout — context expired on next tick
-      await new Promise((r) => setTimeout(r, 10));
+      await Promise.resolve();
 
-      emit("actually turn it off");
-      await new Promise((r) => setTimeout(r, 20));
+      // Follow-up after delay — context still open, should classify
+      emit("is it on?");
+      await vi.waitFor(() => expect(spoken).toHaveLength(2));
 
-      // Only the first directed question classify call, ambient discarded
-      expect(classifySpy).toHaveBeenCalledTimes(1);
+      // Both calls classified: first Directed Question, then follow-up
+      expect(classifySpy).toHaveBeenCalledTimes(2);
     });
 
     it("follow-up utterance without system name is discarded when context is closed", async () => {
@@ -1042,6 +1046,57 @@ describe("VoiceAutomationService", () => {
       expect(thirdCallHistory).toContainEqual({ role: "assistant", content: "reply 1" });
     });
 
+    it("unknown ambient utterance keeps context open (rolling window)", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output, spoken } = makeSpeechOutput();
+      const { gateway } = makeGateway();
+
+      const mockConfig: ConfigRepository = {
+        get: async () => ({ autoDiscovery: false, conversationContextTimeoutSeconds: 0.3 }),
+        save: async () => {},
+      };
+
+      let call = 0;
+      const classifySpy = vi.fn().mockImplementation(async (): Promise<ClassifiedIntent> => {
+        const n = call++;
+        if (n === 0) return { type: "device-control", deviceLabel: "Porch Light", command: "on", response: "Done." };
+        if (n === 1) return { type: "unknown" }; // ambient — resets timer via touch
+        return { type: "query", response: "Still here." };
+      });
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: { classify: classifySpy },
+        devices: makeDeviceRepo([actuator]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        gateway,
+        config: mockConfig,
+      });
+
+      service.start();
+      emit("housekeeper turn on the porch light");
+      await vi.waitFor(() => expect(spoken).toHaveLength(1));
+      await Promise.resolve();
+
+      // Wait 200ms — near expiry (300ms window) but still open
+      await new Promise((r) => setTimeout(r, 200));
+
+      // Ambient unknown — touch resets timer (new expiry: now + 300ms)
+      emit("some ambient noise");
+      await vi.waitFor(() => expect(classifySpy).toHaveBeenCalledTimes(2));
+      await Promise.resolve();
+
+      // Wait another 200ms — original window expired at ~T+300ms; touch extended it; we're at ~T+400ms
+      await new Promise((r) => setTimeout(r, 200));
+
+      emit("is anyone there?");
+      await vi.waitFor(() => expect(spoken).toHaveLength(2));
+
+      expect(spoken[1].text).toBe("Still here.");
+    });
+
     it("does not speak when ambient utterance classifies as unknown", async () => {
       const { hub, emit } = makeVoiceNodeHub();
       const { output, spoken } = makeSpeechOutput();
@@ -1109,6 +1164,51 @@ describe("VoiceAutomationService", () => {
 
       expect(spoken[1].text).toBe("Yes, you can take the Eurostar.");
       expect(spoken[1].nodeId).toBe(TEST_NODE_ID);
+    });
+
+    it("speaks clarifyingQuestion for low-confidence follow-up instead of acting", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output, spoken } = makeSpeechOutput();
+      const { gateway, published } = makeGateway();
+
+      let call = 0;
+      const classifySpy = vi.fn().mockImplementation(async (): Promise<ClassifiedIntent> => {
+        if (call++ === 0) {
+          return { type: "device-control", deviceLabel: "Porch Light", command: "on", response: "Done.", intentConfidence: 0.95 };
+        }
+        // Follow-up with low confidence, LLM returns clarifyingQuestion
+        return {
+          type: "device-control",
+          deviceLabel: "Kitchen Light",
+          command: "on",
+          clarifyingQuestion: "Did you mean kitchen light or bedroom light?",
+          intentConfidence: 0.55,
+        };
+      });
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: { classify: classifySpy },
+        devices: makeDeviceRepo([actuator]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        gateway,
+      });
+
+      service.start();
+      emit("housekeeper turn on the porch light");
+      await vi.waitFor(() => expect(spoken).toHaveLength(1));
+      await Promise.resolve();
+
+      expect(published).toHaveLength(1); // device was controlled
+
+      emit("turn on the light");
+      await vi.waitFor(() => expect(spoken).toHaveLength(2));
+
+      // Should ask for clarification instead of controlling the device
+      expect(spoken[1].text).toBe("Did you mean kitchen light or bedroom light?");
+      expect(published).toHaveLength(1); // device was NOT controlled
     });
   });
 });
