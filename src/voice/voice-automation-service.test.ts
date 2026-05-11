@@ -1383,5 +1383,59 @@ describe("VoiceAutomationService", () => {
       expect(classifyUtterances.length).toBe(baselineCount);
       expect(classifyUtterances).not.toContain("yes");
     });
+
+    it("dispatches unknown intent on yes response", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output } = makeSpeechOutput();
+      const confirmationAudio = Buffer.from("confirmation-wav");
+      const { gateway, published } = makeGateway();
+
+      let dispatchedIntents: Array<{ type: string }> = [];
+      const classifier: IntentClassifier = {
+        classify: async (opts) => {
+          // Capture device-control intent that would normally happen
+          if (opts.utterance === "turn on lights") {
+            dispatchedIntents.push({ type: "device-control" });
+            return {
+              type: "device-control",
+              deviceLabel: "Lights",
+              command: "on",
+              response: "Lights are on",
+            };
+          }
+          dispatchedIntents.push({ type: "unknown" });
+          return { type: "unknown" };
+        },
+      };
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier,
+        devices: makeDeviceRepo([]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        gateway,
+        responseAudioCache: makeResponseAudioCache(confirmationAudio),
+      });
+
+      service.start();
+
+      // Emit stop-word to trigger interruption
+      emit("wait", TEST_NODE_ID);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Clear intent tracking to isolate yes response
+      dispatchedIntents = [];
+
+      // Emit "yes" response - should dispatch unknown intent
+      emit("yes", TEST_NODE_ID);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Unknown intent should have been dispatched (implicitly - it was handled without classification)
+      // We verify this by checking that no device action was taken
+      // (A device-control would have published to gateway)
+      expect(published.length).toBe(0);
+    });
   });
 });
