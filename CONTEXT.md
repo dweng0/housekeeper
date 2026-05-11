@@ -19,12 +19,20 @@ A single continuous spoken sentence or phrase, bounded by a Speech Boundary.
 _Avoid_: command, speech, input
 
 **Listening Window**:
-The fixed-duration rolling transcript maintained by always-on STT. When the system name is detected within it, the system enters capture mode and waits for a Speech Boundary before dispatching the full window for classification.
+The fixed-duration rolling transcript maintained by always-on STT. When the system name is detected within it, the system enters capture mode and waits for a Speech Boundary before dispatching the full window for classification. During TTS playback, the Listening Window switches to "stop-word only" mode: ambient utterances are ignored, only Stop-word keywords are matched. The window resumes normal operation after TTS ends.
 _Avoid_: context window, audio buffer, transcript buffer
 
 **Speech Boundary**:
 The point of detected silence (via VAD debounce, ~700ms–1s) that closes the Listening Window and triggers dispatch to the directed-question classifier. Resets if new speech is detected before the threshold.
 _Avoid_: end of speech, silence detection, cutoff
+
+**Stop-word**:
+An utterance keyword (e.g. "wait", "stop", "hold on") spoken during device-control or create-automation TTS playback that triggers the Interruption flow. Detected via keyword matching (not LLM) while the Listening Window is in "stop-word only" mode. Does not interrupt query responses.
+_Avoid_: interrupt word, cancel keyword
+
+**Interruption Flow**:
+The sequence triggered by a Stop-word during TTS playback: (1) pause device-control TTS stream, (2) play cached Stop Confirmation response, (3) listen for 3 seconds for explicit yes/no intent, (4) if "no" or timeout, replay original stream; if "yes", discard stream. Stop-word confirmations are not logged as conversation turns.
+_Avoid_: cancellation flow, stop flow
 
 ### Devices
 

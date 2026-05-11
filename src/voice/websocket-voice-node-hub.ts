@@ -1,4 +1,5 @@
 import { WebSocketServer, WebSocket } from "ws";
+import { randomUUID } from "crypto";
 import type { VoiceNode, VoiceNodeHub, VoiceNodeConfigPatch, VoiceNodeRepository } from "../ports.js";
 
 interface RegisterMessage {
@@ -22,6 +23,11 @@ interface ConfigUpdatedMessage {
 
 type InboundMessage = RegisterMessage | UtteranceMessage | ConfigUpdatedMessage | { type: string };
 
+interface StreamCacheEntry {
+  chunks: Buffer[];
+  expireAt: number;
+}
+
 export function makeWebSocketVoiceNodeHub(
   repository: VoiceNodeRepository,
   port: number,
@@ -32,6 +38,17 @@ export function makeWebSocketVoiceNodeHub(
   const connections = new Map<string, WebSocket>();
   const socketToNodeId = new Map<WebSocket, string>();
   const connectedNodes = new Map<string, VoiceNode>();
+  const streamCache = new Map<string, StreamCacheEntry>();
+  const TTL_MS = 30000; // 30 seconds
+
+  function pruneExpiredCache(): void {
+    const now = Date.now();
+    for (const [key, entry] of streamCache.entries()) {
+      if (now > entry.expireAt) {
+        streamCache.delete(key);
+      }
+    }
+  }
 
   function sendJson(ws: WebSocket, msg: object): void {
     ws.send(JSON.stringify(msg));
@@ -144,13 +161,41 @@ export function makeWebSocketVoiceNodeHub(
     },
 
     async sendTts(nodeId, audio) {
+      async function* singleChunk() {
+        yield audio;
+      }
+      await this.sendTtsStream(nodeId, singleChunk());
+    },
+
+    async sendTtsStream(nodeId, chunks) {
       const ws = connections.get(nodeId);
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        console.warn(`[VoiceNodeHub] sendTts: node ${nodeId} not connected, dropping response`);
-        return;
+        console.warn(`[VoiceNodeHub] sendTtsStream: node ${nodeId} not connected, dropping response`);
+        return randomUUID();
       }
-      console.log(`[VoiceNodeHub] sendTts: sending ${audio.length} bytes to ${nodeId}`);
-      ws.send(audio);
+      const streamToken = randomUUID();
+      const cacheKey = `${nodeId}:${streamToken}`;
+      const bufferedChunks: Buffer[] = [];
+
+      console.log(`[VoiceNodeHub] sendTtsStream: starting stream to ${nodeId}`);
+      sendJson(ws, { type: "tts_stream_start" });
+      for await (const chunk of chunks) {
+        if (ws.readyState !== WebSocket.OPEN) break;
+        bufferedChunks.push(chunk);
+        ws.send(chunk);
+      }
+      sendJson(ws, { type: "tts_stream_end" });
+
+      // Prune expired entries before storing (quiet auto-cleanup)
+      pruneExpiredCache();
+
+      // Store in cache with TTL
+      streamCache.set(cacheKey, {
+        chunks: bufferedChunks,
+        expireAt: Date.now() + TTL_MS,
+      });
+
+      return streamToken;
     },
 
     async sendConfig(nodeId, patch: VoiceNodeConfigPatch) {
@@ -173,6 +218,17 @@ export function makeWebSocketVoiceNodeHub(
 
     pushUtterance(nodeId, transcript) {
       utteranceHandler?.(nodeId, transcript);
+    },
+
+    getStreamBuffer(nodeId, token) {
+      const cacheKey = `${nodeId}:${token}`;
+      const entry = streamCache.get(cacheKey);
+      if (!entry) return null;
+      if (Date.now() > entry.expireAt) {
+        streamCache.delete(cacheKey);
+        return null;
+      }
+      return entry.chunks;
     },
   };
 }

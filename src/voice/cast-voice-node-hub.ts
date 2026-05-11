@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import type {
   VoiceNode,
   VoiceNodeRepository,
@@ -19,6 +20,7 @@ export interface CastVoiceNodeHub {
   start(): void;
   stop(): void;
   sendTts(nodeId: string, audio: Buffer): Promise<void>;
+  sendTtsStream(nodeId: string, chunks: AsyncIterable<Buffer>): Promise<string>;
   getNode(nodeId: string): VoiceNode | undefined;
   getConnectedNodes(): VoiceNode[];
   onNodeConfirmed(nodeId: string): void;
@@ -114,6 +116,19 @@ export function makeCastVoiceNodeHub({
       const { url, cleanup } = await audioFileServer.serve(audio);
       await client.playUrl(url);
       setTimeout(cleanup, 30_000);
+    },
+
+    async sendTtsStream(nodeId, chunks) {
+      const streamToken = randomUUID();
+      let client = clients.get(nodeId) ?? await connecting.get(nodeId);
+      if (!client) {
+        console.warn(`[CastHub] sendTtsStream: node ${nodeId} not connected, dropping`);
+        return streamToken;
+      }
+      const { url, cleanup } = await audioFileServer.serveStream(chunks);
+      await client.playUrl(url);
+      setTimeout(cleanup, 30_000);
+      return streamToken;
     },
 
     getNode(nodeId) {

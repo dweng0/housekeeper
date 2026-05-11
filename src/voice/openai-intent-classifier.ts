@@ -23,33 +23,39 @@ function buildSystemPrompt(deviceLabels: string[], memories: string[], location?
 
   const locationSection = location ? `\nOriginating location: ${location}` : "";
 
-  const basePrompt = `You are a home automation assistant. Parse spoken utterances into structured JSON.
+  const basePrompt = `CRITICAL: You must respond with ONLY valid JSON. No exceptions. No conversational text before or after. No markdown code blocks. No explanations.
+
+You are a home automation assistant. Parse spoken utterances into structured JSON objects.
 
 Known device labels:
 ${labelList}${memorySection}${locationSection}
 
-Return JSON matching one of these shapes:
-- { "type": "device-control", "deviceLabel": "<label>", "command": "<cmd>", "response": "<spoken confirmation>", "intentConfidence": <0-1>, "residentName": "<name if identified>" }
-- { "type": "create-automation", "automation": { "enabled": true, "trigger": { "deviceLabel": "<label>", "event": "<event>" }, "actions": [{ "deviceLabel": "<label>", "command": "<cmd>", "durationSeconds": <n>, "reverseCommand": "<cmd>" }] }, "response": "<spoken confirmation>", "intentConfidence": <0-1>, "residentName": "<name if identified>" }
-- { "type": "query", "query": "<question>", "response": "<conversational answer, 2-3 sentences, spoken English, no markdown>", "intentConfidence": <0-1> }
-- { "type": "set-resident", "residentName": "<name>", "response": "<warm acknowledgement>", "intentConfidence": <0-1> }
-- { "type": "unknown" }
+Return ONLY ONE of these exact JSON shapes:
+1. { "type": "device-control", "deviceLabel": "<label>", "command": "<cmd>", "response": "<spoken confirmation>", "intentConfidence": <0-1>, "residentName": "<name if identified>" }
+2. { "type": "create-automation", "automation": { "enabled": true, "trigger": { "deviceLabel": "<label>", "event": "<event>" }, "actions": [{ "deviceLabel": "<label>", "command": "<cmd>", "durationSeconds": <n>, "reverseCommand": "<cmd>" }] }, "response": "<spoken confirmation>", "intentConfidence": <0-1>, "residentName": "<name if identified>" }
+3. { "type": "query", "query": "<question>", "response": "<conversational answer, 2-3 sentences, spoken English, no markdown>", "intentConfidence": <0-1> }
+4. { "type": "set-resident", "residentName": "<name>", "response": "<warm acknowledgement>", "intentConfidence": <0-1> }
+5. { "type": "unknown" }
 
-When intentConfidence < 0.7, return clarifyingQuestion instead of response:
+For low confidence (< 0.7), use "clarifyingQuestion" instead of "response":
 - { "type": "device-control", "deviceLabel": "<label>", "command": "<cmd>", "clarifyingQuestion": "<ask user to disambiguate>", "intentConfidence": <0-1> }
 - { "type": "query", "query": "<question>", "clarifyingQuestion": "<ask user to clarify>", "intentConfidence": <0-1> }
-- (clarifyingQuestion omitted for set-resident and create-automation unless they involve unclear references)
 
-Use "device-control" for immediate commands to control devices (e.g. "turn on the kitchen light", "switch off the fan"). Use the exact label from the known list if it matches; otherwise use the device name as spoken — the system will handle unregistered devices.
-Use "create-automation" for setting up rules/triggers (e.g. "when the front door opens turn on the porch light").
-Use "set-resident" when the speaker identifies themselves (e.g. "this is Jay", "I'm Sarah").
-Use "query" for any general question or request for information (e.g. "what temperature is the sun", "who invented the lightbulb", "what's the weather like").
-Use "unknown" only if the utterance is not addressed to the assistant or the intent is genuinely unclear.
-For the "command" field use only: on, off, toggle, open, close, lock, unlock, brightness_up, brightness_down.
-The "response" field is spoken aloud — keep it brief, natural, and in character. If the utterance identifies a resident alongside an action, include "residentName" on that intent and address them by name in "response".
-The "intentConfidence" field is a 0–1 float: your certainty that you correctly identified the intent from the utterance. Use 1.0 for clear, unambiguous utterances; lower values when the utterance is vague, fragmented, or could mean multiple things.
-The "clarifyingQuestion" field is used when intentConfidence < 0.7. Instead of acting on an uncertain interpretation, ask the user to clarify (e.g. "Did you mean the hallway light or the kitchen light?"). Omit "response" and include "clarifyingQuestion" in these low-confidence cases.
-Return only valid JSON, no markdown.`;
+RULES:
+- ALWAYS respond with valid JSON only. Never add any text outside the JSON object.
+- Never wrap JSON in markdown code blocks (\`\`\`json ... \`\`\`).
+- Never respond with conversational text. Not even as a preamble or explanation.
+- If you cannot parse the utterance, return: { "type": "unknown" }
+- For device control: use exact label from known list, or device name as spoken.
+- For commands: only use: on, off, toggle, open, close, lock, unlock, brightness_up, brightness_down.
+- The "response" field is what will be spoken — keep it brief, natural, in character.
+- The "intentConfidence" field must be a number between 0 and 1.
+- On ambiguity or low confidence, use "clarifyingQuestion" not "response".
+
+Examples of valid responses (COPY THIS FORMAT EXACTLY):
+{ "type": "device-control", "deviceLabel": "kitchen light", "command": "on", "response": "Turning on the kitchen light", "intentConfidence": 1.0 }
+{ "type": "query", "query": "what is the weather", "response": "It's a nice day today.", "intentConfidence": 0.9 }
+{ "type": "unknown" }`;
 
   if (!persona) return basePrompt;
 
@@ -96,17 +102,22 @@ export function makeOpenAIIntentClassifier(opts: OpenAIClassifierOptions): Inten
         const data = await response.json() as { choices: { message: { content: string } }[] };
         const content = data.choices[0].message.content;
         console.log("[Classifier] LLM response:", content);
-        
-        // Strip markdown code blocks if present
+
+        // Strip markdown code blocks and whitespace
         let jsonStr = content.trim();
         if (jsonStr.startsWith("```")) {
-          jsonStr = jsonStr.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+          jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "").trim();
         }
-        
+
         try {
           const parsed = JSON.parse(jsonStr) as ClassifiedIntent;
           return parsed ?? UNKNOWN;
         } catch (parseErr) {
+          // If parse fails, check if response looks like natural language (starts with letter)
+          if (jsonStr.length > 0 && /^[a-zA-Z]/.test(jsonStr)) {
+            console.warn("[Classifier] LLM returned natural language instead of JSON, treating as unknown:", jsonStr.substring(0, 80));
+            return UNKNOWN;
+          }
           console.error("[Classifier] JSON parse error:", parseErr instanceof Error ? parseErr.message : parseErr);
           console.error("[Classifier] Raw content:", content);
           return UNKNOWN;

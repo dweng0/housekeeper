@@ -1,5 +1,7 @@
 # TTS engine: Piper via subprocess
 
+**Status: Superseded by [ADR 0008 — Streaming TTS Delivery via Kokoro](0008-streaming-tts-delivery.md)**
+
 The `SpeechOutput` port renders text-to-speech using `piper` (from `pkgs.piper-tts`), spawned as a subprocess. Piper writes raw PCM to stdout; the server captures it and routes the audio buffer to the target Voice Node via `VoiceNodeHub.sendTts()`.
 
 ## Considered options

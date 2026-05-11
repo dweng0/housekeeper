@@ -7,6 +7,7 @@ export interface ListeningWindowOptions {
 
 export interface ListeningWindow {
   addUtterance(text: string, timestampMs?: number): void;
+  setMode(mode: "normal" | "stop-word-only"): void;
 }
 
 interface Entry {
@@ -22,6 +23,17 @@ export function makeListeningWindow({
 }: ListeningWindowOptions): ListeningWindow {
   const entries: Entry[] = [];
   const nameLower = systemName.toLowerCase();
+  const stopWords = ["wait", "stop", "hold on", "cancel", "no", "nope", "never mind"];
+  const stopWordRegex = new RegExp(`\\b(${stopWords.join("|")})\\b`, "i");
+  let mode: "normal" | "stop-word-only" = "normal";
+
+  const shouldDispatchAmbientUtterance = (text: string): boolean => {
+    if (mode === "normal") {
+      return true;
+    }
+    // stop-word-only mode: dispatch only if matches stop-word regex
+    return stopWordRegex.test(text);
+  };
 
   return {
     addUtterance(text, timestampMs = Date.now()) {
@@ -47,8 +59,17 @@ export function makeListeningWindow({
         console.log("[ListeningWindow] Directed question:", transcript);
         onDirectedQuestion(transcript);
       } else {
-        onAmbientUtterance?.(text);
+        // Ambient utterance: apply mode filtering
+        if (shouldDispatchAmbientUtterance(text)) {
+          onAmbientUtterance?.(text);
+        } else {
+          console.log("[ListeningWindow] Suppressed non-stop-word in stop-word-only mode:", text);
+        }
       }
+    },
+
+    setMode(newMode: "normal" | "stop-word-only") {
+      mode = newMode;
     },
   };
 }

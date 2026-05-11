@@ -27,6 +27,7 @@ interface OpenAiTtsAdapterOptions {
   apiKey?: string;
   voiceNodeHub: VoiceNodeHub;
   config: ConfigRepository;
+  fetch?: typeof global.fetch;
 }
 
 export class OpenAiTtsAdapter implements SpeechOutput {
@@ -36,36 +37,70 @@ export class OpenAiTtsAdapter implements SpeechOutput {
   private readonly apiKey: string | undefined;
   private readonly hub: VoiceNodeHub;
   private readonly config: ConfigRepository;
+  private readonly fetch: typeof global.fetch;
 
-  constructor({ endpoint, model, voice, apiKey, voiceNodeHub, config }: OpenAiTtsAdapterOptions) {
+  constructor({ endpoint, model, voice, apiKey, voiceNodeHub, config, fetch }: OpenAiTtsAdapterOptions) {
     this.endpoint = endpoint.replace(/\/$/, "");
     this.model = model ?? "tts-1";
     this.voice = voice ?? "alloy";
     this.apiKey = apiKey;
     this.hub = voiceNodeHub;
     this.config = config;
+    this.fetch = fetch ?? global.fetch;
   }
 
   async speak(text: string, originatingNodeId: string): Promise<void> {
-    const [pcm, targetId] = await Promise.all([
-      this.render(text),
-      this.resolveTarget(originatingNodeId),
-    ]);
+    const targetId = await this.resolveTarget(originatingNodeId);
     if (!targetId) {
       console.warn("[TTS] No speaker node available, dropping response");
       return;
     }
-    await this.hub.sendTts(targetId, pcm);
+
+    const appConfig = await this.config.get();
+    const streamingEnabled = appConfig.ttsStreamingEnabled ?? true;
+
+    if (streamingEnabled) {
+      const chunks = await this.renderStreaming(text);
+      await this.hub.sendTtsStream(targetId, chunks);
+    } else {
+      // Fallback to buffered mode
+      const pcm = await this.render(text);
+      await this.hub.sendTts(targetId, pcm);
+    }
+  }
+
+  private async *renderStreaming(text: string): AsyncIterable<Buffer> {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`;
+
+    const res = await this.fetch(`${this.endpoint}/v1/audio/speech`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ input: text }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`TTS HTTP ${res.status}: ${body}`);
+    }
+
+    if (!res.body) {
+      throw new Error("TTS response has no body");
+    }
+
+    for await (const chunk of res.body as any) {
+      yield chunk as Buffer;
+    }
   }
 
   private async render(text: string): Promise<Buffer> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`;
 
-    const res = await fetch(`${this.endpoint}/v1/audio/speech`, {
+    const res = await this.fetch(`${this.endpoint}/v1/audio/speech`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ model: this.model, voice: this.voice, input: text, response_format: "pcm" }),
+      body: JSON.stringify({ input: text }),
     });
 
     if (!res.ok) {

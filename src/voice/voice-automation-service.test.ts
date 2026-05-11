@@ -37,19 +37,29 @@ const TEST_NODE_ID = "node-hallway";
 
 function makeVoiceNodeHub() {
   let handler: ((nodeId: string, t: string) => void) | undefined;
+  const streamBuffers = new Map<string, Buffer[]>();
   const hub: VoiceNodeHub = {
     start: vi.fn(),
     stop: vi.fn(),
     onUtterance: (h) => { handler = h; },
     pushUtterance: vi.fn(),
     sendTts: vi.fn(),
-    sendTtsStream: vi.fn(async () => {}),
+    sendTtsStream: vi.fn(async (nodeId, chunks) => {
+      const token = `stream-${Math.random()}`;
+      const buffered: Buffer[] = [];
+      for await (const chunk of chunks) {
+        buffered.push(chunk);
+      }
+      streamBuffers.set(`${nodeId}:${token}`, buffered);
+      return token;
+    }),
     sendConfig: vi.fn(),
     getNode: vi.fn(),
     getConnectedNodes: vi.fn(() => []),
+    getStreamBuffer: vi.fn((nodeId, token) => streamBuffers.get(`${nodeId}:${token}`) ?? null),
   };
   const emit = (text: string, nodeId = TEST_NODE_ID) => handler?.(nodeId, text);
-  return { hub, emit };
+  return { hub, emit, streamBuffers };
 }
 
 function makeDeviceRepo(devices: Device[]): DeviceRepository {
@@ -93,6 +103,14 @@ function makeGateway() {
     subscribe: vi.fn(),
   };
   return { gateway, published };
+}
+
+function makeResponseAudioCache(stopConfirmationAudio: Buffer | null = null): ResponseAudioCache {
+  return {
+    lookup: vi.fn(async () => null),
+    lookupNotFound: vi.fn(async () => null),
+    lookupStopConfirmation: vi.fn(async () => stopConfirmationAudio),
+  };
 }
 
 describe("VoiceAutomationService", () => {
@@ -1211,6 +1229,86 @@ describe("VoiceAutomationService", () => {
       // Should ask for clarification instead of controlling the device
       expect(spoken[1].text).toBe("Did you mean kitchen light or bedroom light?");
       expect(published).toHaveLength(1); // device was NOT controlled
+    });
+  });
+
+  describe("TTS stream interruption orchestration (issue #59)", () => {
+    it("TRACER: plays confirmation audio when stop-word heard during ambient listening", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output } = makeSpeechOutput();
+      const confirmationAudio = Buffer.from("confirmation-wav");
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: makeClassifier({ type: "unknown" }),
+        devices: makeDeviceRepo([]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        responseAudioCache: makeResponseAudioCache(confirmationAudio),
+      });
+
+      service.start();
+
+      // Emit a stop-word ("wait") in ambient listening mode
+      // System should recognize it and play confirmation audio
+      emit("wait", TEST_NODE_ID);
+
+      // Wait for async processing
+      await new Promise((r) => setTimeout(r, 100));
+
+      // Verify confirmation audio was played
+      const sendTtsCalls = (hub.sendTts as any).mock.calls;
+      expect(sendTtsCalls.some((call: any[]) => call[1]?.equals(confirmationAudio))).toBe(true);
+    });
+
+    it("recognizes yes/no via keyword match without classification", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output } = makeSpeechOutput();
+      const confirmationAudio = Buffer.from("confirmation-wav");
+
+      let classifyUtterances: string[] = [];
+      const classifier: IntentClassifier = {
+        classify: async (opts) => {
+          classifyUtterances.push(opts.utterance);
+          return { type: "unknown" };
+        },
+      };
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier,
+        devices: makeDeviceRepo([]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        responseAudioCache: makeResponseAudioCache(confirmationAudio),
+      });
+
+      service.start();
+
+      // Emit stop-word to trigger confirmation and awaiting state
+      emit("wait", TEST_NODE_ID);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Verify confirmation was played
+      expect((hub.sendTts as any).mock.calls.some((c: any[]) => c[1]?.equals(confirmationAudio))).toBe(true);
+
+      // Emit "yes" - should trigger yes-path (not classification)
+      emit("yes", TEST_NODE_ID);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // "yes" should NOT have been classified
+      expect(classifyUtterances).not.toContain("yes");
+
+      // Emit "no" after another stop-word
+      emit("stop", TEST_NODE_ID);
+      await new Promise((r) => setTimeout(r, 50));
+
+      emit("nope", TEST_NODE_ID);
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(classifyUtterances).not.toContain("nope");
     });
   });
 });

@@ -66,6 +66,8 @@ export function makeVoiceAutomationService({
 }: VoiceAutomationServiceDeps): VoiceAutomationService {
   const windows = new Map<string, ListeningWindow>();
   const contexts = new Map<string, ConversationContext>();
+  const inFlightStreams = new Map<string, { token: string; startTime: number }>();
+  const awaitingYesNoResponse = new Map<string, { stopWord: string; timeout: ReturnType<typeof setTimeout> }>();
 
   function getContext(nodeId: string): ConversationContext {
     if (!contexts.has(nodeId)) {
@@ -79,6 +81,53 @@ export function makeVoiceAutomationService({
       windows.set(nodeId, makeListeningWindow({
         systemName,
         onAmbientUtterance: async (text) => {
+          // Check for yes/no response to stop confirmation (if awaiting)
+          if (awaitingYesNoResponse.has(nodeId)) {
+            const yesRegex = /\b(yes|yeah|yep)\b/i;
+            const noRegex = /\b(no|nope|cancel)\b/i;
+            if (yesRegex.test(text)) {
+              const entry = awaitingYesNoResponse.get(nodeId)!;
+              clearTimeout(entry.timeout);
+              awaitingYesNoResponse.delete(nodeId);
+              console.log(`[VoiceAutomation] Interruption: ${entry.stopWord} → confirmation played → yes → discard`);
+              // TODO: discard stream, dispatch unknown intent
+              return;
+            } else if (noRegex.test(text)) {
+              const entry = awaitingYesNoResponse.get(nodeId)!;
+              clearTimeout(entry.timeout);
+              awaitingYesNoResponse.delete(nodeId);
+              console.log(`[VoiceAutomation] Interruption: ${entry.stopWord} → confirmation played → no → replay`);
+              // TODO: replay stream
+              return;
+            }
+          }
+
+          // Check for stop-word interruption BEFORE context check
+          // so we can interrupt even when not in active conversation
+          const stopWords = ["wait", "stop", "hold on", "cancel", "no", "nope", "never mind"];
+          const stopWordRegex = new RegExp(`\\b(${stopWords.join("|")})\\b`, "i");
+          const stopWordMatch = text.match(stopWordRegex);
+          if (stopWordMatch) {
+            const confirmationAudio = await responseAudioCache.lookupStopConfirmation();
+            if (confirmationAudio) {
+              const stopWord = stopWordMatch[1];
+              console.log("[VoiceAutomation] Interruption: stop-word → confirmation played");
+              await voiceNodeHub.sendTts(nodeId, confirmationAudio);
+
+              // Start 3-second window for yes/no response
+              const timeout = setTimeout(() => {
+                if (awaitingYesNoResponse.has(nodeId)) {
+                  awaitingYesNoResponse.delete(nodeId);
+                  console.log(`[VoiceAutomation] Interruption: ${stopWord} → confirmation played → timeout → replay`);
+                  // TODO: replay or fallback to unknown
+                }
+              }, 3000);
+
+              awaitingYesNoResponse.set(nodeId, { stopWord, timeout });
+              return;
+            }
+          }
+
           const ctx = getContext(nodeId);
           if (!ctx.isOpen()) return;
 

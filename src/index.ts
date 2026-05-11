@@ -29,8 +29,6 @@ import { makeResponseAudioCacheBuilder } from "./voice/response-audio-cache-buil
 import { makeJsonResponseAudioCache } from "./voice/json-response-audio-cache.js";
 import { makeOpenAIResponseTextGenerator } from "./voice/openai-response-text-generator.js";
 import { makeOpenAITtsRenderer } from "./voice/openai-tts-renderer.js";
-import { makePiperDaemonTtsRenderer } from "./voice/piper-daemon-tts-renderer.js";
-import { PiperTtsAdapter } from "./voice/piper-tts-adapter.js";
 import type { AppConfig, Device } from "./ports.js";
 
 const app = express();
@@ -92,17 +90,14 @@ const classifier = makeOpenAIIntentClassifier({
   config: jsonConfigRepository,
 });
 
-const piperVoicePath = process.env.PIPER_VOICE_PATH;
-const speechOutput = piperVoicePath
-  ? new PiperTtsAdapter({ voicePath: piperVoicePath, voiceNodeHub, config: jsonConfigRepository })
-  : new OpenAiTtsAdapter({
-      endpoint: process.env.TTS_ENDPOINT ?? "http://localhost:8001",
-      model: process.env.TTS_MODEL,
-      voice: process.env.TTS_VOICE,
-      apiKey: process.env.TTS_API_KEY,
-      voiceNodeHub,
-      config: jsonConfigRepository,
-    });
+const speechOutput = new OpenAiTtsAdapter({
+  endpoint: process.env.TTS_ENDPOINT ?? "http://localhost:8001",
+  model: process.env.TTS_MODEL,
+  voice: process.env.TTS_VOICE,
+  apiKey: process.env.TTS_API_KEY,
+  voiceNodeHub,
+  config: jsonConfigRepository,
+});
 
 const queryResponder = makeOpenAiQueryResponder({
   endpoint: process.env.LLM_ENDPOINT ?? "http://localhost:11434/v1",
@@ -130,14 +125,12 @@ const voiceService = makeVoiceAutomationService({
 voiceService.start();
 discovery.start();
 
-const ttsRenderer = piperVoicePath
-  ? makePiperDaemonTtsRenderer(piperVoicePath)
-  : makeOpenAITtsRenderer({
-      endpoint: process.env.TTS_ENDPOINT ?? "http://localhost:8001",
-      model: process.env.TTS_MODEL,
-      voice: process.env.TTS_VOICE,
-      apiKey: process.env.TTS_API_KEY,
-    });
+const ttsRenderer = makeOpenAITtsRenderer({
+  endpoint: process.env.TTS_ENDPOINT ?? "http://localhost:8001",
+  model: process.env.TTS_MODEL,
+  voice: process.env.TTS_VOICE,
+  apiKey: process.env.TTS_API_KEY,
+});
 
 const startupConfig = await jsonConfigRepository.get();
 let cacheBuilder = makeResponseAudioCacheBuilder({

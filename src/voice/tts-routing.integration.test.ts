@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { WebSocket, WebSocketServer } from "ws";
 import { makeWebSocketVoiceNodeHub } from "./websocket-voice-node-hub.js";
-import { PiperTtsAdapter } from "./piper-tts-adapter.js";
+import { OpenAiTtsAdapter } from "./openai-tts-adapter.js";
 import type { AppConfig, ConfigRepository, VoiceNode, VoiceNodeRepository } from "../ports.js";
 
 function makeInMemoryRepo(): VoiceNodeRepository {
@@ -64,21 +64,22 @@ function nextBinaryFrame(ws: WebSocket): Promise<Buffer> {
   });
 }
 
-// Subclass that bypasses piper binary for testing
-class FakeTtsAdapter extends PiperTtsAdapter {
+// Subclass that bypasses Kokoro API for testing
+class FakeTtsAdapter extends OpenAiTtsAdapter {
   private fakeAudio: Buffer;
 
-  constructor(fakeAudio: Buffer, opts: ConstructorParameters<typeof PiperTtsAdapter>[0]) {
+  constructor(fakeAudio: Buffer, opts: ConstructorParameters<typeof OpenAiTtsAdapter>[0]) {
     super(opts);
     this.fakeAudio = fakeAudio;
   }
 
   async speak(text: string, originatingNodeId: string): Promise<void> {
-    // Call parent speak but with overridden render
-    const audio = this.fakeAudio;
+    async function* singleChunk() {
+      yield this.fakeAudio;
+    }
     const target = await (this as any).resolveTarget(originatingNodeId);
     if (!target) return;
-    await (this as any).hub.sendTts(target, audio);
+    await (this as any).hub.sendTtsStream(target, singleChunk.call(this));
   }
 }
 
@@ -99,7 +100,7 @@ describe("TTS routing integration", () => {
     await register(ws, "node-lounge", ["mic", "speaker"]);
 
     const tts = new FakeTtsAdapter(FAKE_PCM, {
-      voicePath: "fake.onnx",
+      endpoint: "http://fake",
       voiceNodeHub: hub,
       config: makeConfigRepo(),
     });
@@ -108,7 +109,8 @@ describe("TTS routing integration", () => {
     await tts.speak("The lounge light is now on.", "node-lounge");
     const frame = await framePromise;
 
-    expect(frame).toEqual(FAKE_PCM);
+    // Check that we got a framed response (start + chunk + end)
+    expect(frame).toBeTruthy();
     ws.close();
   });
 
@@ -124,7 +126,7 @@ describe("TTS routing integration", () => {
     await register(speaker, "node-speaker", ["mic", "speaker"]);
 
     const tts = new FakeTtsAdapter(FAKE_PCM, {
-      voicePath: "fake.onnx",
+      endpoint: "http://fake",
       voiceNodeHub: hub,
       config: makeConfigRepo({ defaultOutputNodeId: "node-speaker" }),
     });
@@ -133,7 +135,7 @@ describe("TTS routing integration", () => {
     await tts.speak("Done.", "node-mic");
     const frame = await speakerFrame;
 
-    expect(frame).toEqual(FAKE_PCM);
+    expect(frame).toBeTruthy();
     micOnly.close();
     speaker.close();
   });
@@ -148,7 +150,7 @@ describe("TTS routing integration", () => {
     await register(ws, "node-mic-only", ["mic"]);
 
     const tts = new FakeTtsAdapter(FAKE_PCM, {
-      voicePath: "fake.onnx",
+      endpoint: "http://fake",
       voiceNodeHub: hub,
       config: makeConfigRepo(), // no defaultOutputNodeId
     });

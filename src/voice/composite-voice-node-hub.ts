@@ -32,6 +32,10 @@ export function makeCompositeVoiceNodeHub(
       await resolveHub(nodeId).sendTts(nodeId, audio);
     },
 
+    async sendTtsStream(nodeId, chunks) {
+      return await resolveHub(nodeId).sendTtsStream(nodeId, chunks);
+    },
+
     async sendConfig(nodeId, patch: VoiceNodeConfigPatch) {
       await wsHub.sendConfig(nodeId, patch);
     },
@@ -46,6 +50,10 @@ export function makeCompositeVoiceNodeHub(
 
     onNodeConfirmed(nodeId: string): void {
       castHub.onNodeConfirmed(nodeId);
+    },
+
+    getStreamBuffer(nodeId, token) {
+      return wsHub.getStreamBuffer(nodeId, token);
     },
   };
 }

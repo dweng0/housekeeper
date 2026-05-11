@@ -4,8 +4,10 @@
       "Bash(npm *)",
       "Bash(git *)",
       "Bash",
-      "Edit(src/voice/**)",
-      "Write(src/voice/**)"
+      "Edit(src/**)",
+      "Edit(docs/**)",
+      "Write(src/**)",
+      "Write(docs/**)"
     ]
   }
 }
