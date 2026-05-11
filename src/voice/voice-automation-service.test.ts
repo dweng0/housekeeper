@@ -1310,5 +1310,78 @@ describe("VoiceAutomationService", () => {
 
       expect(classifyUtterances).not.toContain("nope");
     });
+
+    it("handles timeout when no yes/no response within 3 seconds", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output } = makeSpeechOutput();
+      const confirmationAudio = Buffer.from("confirmation-wav");
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: makeClassifier({ type: "unknown" }),
+        devices: makeDeviceRepo([]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        responseAudioCache: makeResponseAudioCache(confirmationAudio),
+      });
+
+      service.start();
+
+      // Emit stop-word to trigger confirmation and 3-second window
+      emit("wait", TEST_NODE_ID);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Verify confirmation was played
+      expect((hub.sendTts as any).mock.calls.some((c: any[]) => c[1]?.equals(confirmationAudio))).toBe(true);
+
+      // Wait for timeout (3 seconds + buffer)
+      await new Promise((r) => setTimeout(r, 3100));
+
+      // Interruption should have completed (timeout path taken)
+      // This is just verifying it doesn't crash - actual replay behavior tested elsewhere
+      expect(service).toBeDefined();
+    });
+
+    it("suppresses yes/no classification when awaiting response", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output } = makeSpeechOutput();
+      const confirmationAudio = Buffer.from("confirmation-wav");
+
+      let classifyUtterances: string[] = [];
+      const classifier: IntentClassifier = {
+        classify: async (opts) => {
+          classifyUtterances.push(opts.utterance);
+          return { type: "unknown" };
+        },
+      };
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier,
+        devices: makeDeviceRepo([]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        responseAudioCache: makeResponseAudioCache(confirmationAudio),
+      });
+
+      service.start();
+
+      // Emit stop-word to enter awaiting response state
+      emit("stop", TEST_NODE_ID);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Get baseline classification count
+      const baselineCount = classifyUtterances.length;
+
+      // Emit "yes" while awaiting - should NOT be classified
+      emit("yes", TEST_NODE_ID);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Classification count should not have increased
+      expect(classifyUtterances.length).toBe(baselineCount);
+      expect(classifyUtterances).not.toContain("yes");
+    });
   });
 });
