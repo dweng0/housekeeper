@@ -19,7 +19,7 @@ import type { LogStore, DirectedQuestionOutcome } from "../log-store.js";
 import { makeConversationContext } from "./conversation-context.js";
 import type { ConversationContext } from "./conversation-context.js";
 
-const HISTORY_TOKEN_BUDGET = 4_000;
+const DEFAULT_HISTORY_TOKEN_BUDGET = 4_000;
 
 interface VoiceAutomationServiceDeps {
   voiceNodeHub: VoiceNodeHub;
@@ -84,8 +84,9 @@ export function makeVoiceAutomationService({
 
           const cfg = config ? await config.get() : null;
           const threshold = cfg?.intentConfidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD;
+          const historyTokenBudget = cfg?.historyTokenBudget ?? DEFAULT_HISTORY_TOKEN_BUDGET;
 
-          const history = ctx.getHistory(HISTORY_TOKEN_BUDGET);
+          const history = ctx.getHistory(historyTokenBudget);
           const residentId = session?.getResidentId();
           const memories = memoryStore && residentId
             ? await memoryStore.search(residentId, text)

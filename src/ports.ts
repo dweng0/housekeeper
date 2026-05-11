@@ -194,7 +194,7 @@ export interface AppConfig {
   mqttBrokerUrl?: string;
   responseCacheVariantCount?: number;
   intentConfidenceThreshold?: number;
-  conversationContextTimeoutSeconds?: number;
+  historyTokenBudget?: number;
   ttsStreamingEnabled?: boolean;
 }
 
