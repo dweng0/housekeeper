@@ -1233,6 +1233,278 @@ describe("VoiceAutomationService", () => {
   });
 
   describe("TTS stream interruption orchestration (issue #59)", () => {
+    describe("Stream Lifecycle Orchestration (Phase 1: wrapper method)", () => {
+      it("TRACER: sendTtsStream returns token and caches stream", async () => {
+        const { hub, streamBuffers } = makeVoiceNodeHub();
+        const { output } = makeSpeechOutput();
+
+        const service = makeVoiceAutomationService({
+          voiceNodeHub: hub,
+          systemName: "housekeeper",
+          classifier: makeClassifier({ type: "unknown" }),
+          devices: makeDeviceRepo([]),
+          automations: makeAutomationRepo(),
+          speechOutput: output,
+        });
+
+        service.start();
+
+        // Create async iterable of test chunks
+        async function* testChunks() {
+          yield Buffer.from("chunk1");
+          yield Buffer.from("chunk2");
+        }
+
+        const token = await service.sendTtsStream(TEST_NODE_ID, testChunks());
+
+        // Verify token returned
+        expect(token).toBeDefined();
+        expect(typeof token).toBe("string");
+
+        // Verify stream was cached in hub (observable behavior)
+        const cached = (hub as any).getStreamBuffer(TEST_NODE_ID, token);
+        expect(cached).toBeDefined();
+        expect(cached).toHaveLength(2);
+        expect(cached[0].toString()).toBe("chunk1");
+        expect(cached[1].toString()).toBe("chunk2");
+      });
+    });
+
+    describe("Stream Lifecycle Orchestration (Phase 2: replay on no response)", () => {
+      it("on no response: fetches cached stream and replays via sendTtsStream", async () => {
+        const { hub, emit } = makeVoiceNodeHub();
+        const { output } = makeSpeechOutput();
+        const confirmationAudio = Buffer.from("confirmation-wav");
+
+        let replaySendTtsStreamCalls = 0;
+        const originalSendTtsStream = hub.sendTtsStream;
+        (hub as any).sendTtsStream = vi.fn(async (nodeId: string, chunks: AsyncIterable<Buffer>) => {
+          replaySendTtsStreamCalls++;
+          return await originalSendTtsStream.call(hub, nodeId, chunks);
+        });
+
+        const service = makeVoiceAutomationService({
+          voiceNodeHub: hub,
+          systemName: "housekeeper",
+          classifier: makeClassifier({ type: "unknown" }),
+          devices: makeDeviceRepo([]),
+          automations: makeAutomationRepo(),
+          speechOutput: output,
+          responseAudioCache: makeResponseAudioCache(confirmationAudio),
+        });
+
+        service.start();
+
+        // Stream some audio
+        async function* testChunks() {
+          yield Buffer.from("audio1");
+          yield Buffer.from("audio2");
+        }
+        const token = await service.sendTtsStream(TEST_NODE_ID, testChunks());
+
+        // Emit stop-word to trigger interruption
+        emit("wait", TEST_NODE_ID);
+        await new Promise((r) => setTimeout(r, 50));
+
+        // Emit "no" to trigger replay
+        emit("nope", TEST_NODE_ID);
+        await new Promise((r) => setTimeout(r, 50));
+
+        // Verify sendTtsStream was called again for replay
+        expect((hub.sendTtsStream as any).mock.calls.length).toBeGreaterThan(1);
+      });
+    });
+
+    describe("Stream Lifecycle Orchestration (Phase 4: timeout handling)", () => {
+      it("on timeout: replays stream if still cached", async () => {
+        const { hub, emit } = makeVoiceNodeHub();
+        const { output } = makeSpeechOutput();
+        const confirmationAudio = Buffer.from("confirmation-wav");
+
+        const originalSendTtsStream = hub.sendTtsStream;
+        const sendTtsStreamCalls: Array<{ nodeId: string }> = [];
+        (hub as any).sendTtsStream = vi.fn(async (nodeId: string, chunks: AsyncIterable<Buffer>) => {
+          sendTtsStreamCalls.push({ nodeId });
+          return await originalSendTtsStream.call(hub, nodeId, chunks);
+        });
+
+        const service = makeVoiceAutomationService({
+          voiceNodeHub: hub,
+          systemName: "housekeeper",
+          classifier: makeClassifier({ type: "unknown" }),
+          devices: makeDeviceRepo([]),
+          automations: makeAutomationRepo(),
+          speechOutput: output,
+          responseAudioCache: makeResponseAudioCache(confirmationAudio),
+        });
+
+        service.start();
+
+        // Stream some audio
+        async function* testChunks() {
+          yield Buffer.from("audio1");
+          yield Buffer.from("audio2");
+        }
+        const token = await service.sendTtsStream(TEST_NODE_ID, testChunks());
+
+        // Emit stop-word to trigger interruption
+        emit("wait", TEST_NODE_ID);
+        await new Promise((r) => setTimeout(r, 50));
+
+        const callsBeforeTimeout = sendTtsStreamCalls.length;
+
+        // Wait for 3-second timeout to fire (plus buffer for processing)
+        await new Promise((r) => setTimeout(r, 3150));
+
+        // Verify sendTtsStream was called again for replay
+        expect(sendTtsStreamCalls.length).toBeGreaterThan(callsBeforeTimeout);
+      }, 10000);
+    });
+
+    describe("Stream Lifecycle Orchestration (Integration: full flow)", () => {
+      it("completes full interruption flow: stream → stop-word → no → replay", async () => {
+        const { hub, emit } = makeVoiceNodeHub();
+        const { output, spoken } = makeSpeechOutput();
+        const confirmationAudio = Buffer.from("confirmation-wav");
+
+        const originalSendTtsStream = hub.sendTtsStream;
+        const sendTtsStreamCalls: number[] = [];
+        (hub as any).sendTtsStream = vi.fn(async (nodeId: string, chunks: AsyncIterable<Buffer>) => {
+          sendTtsStreamCalls.push(sendTtsStreamCalls.length);
+          return await (originalSendTtsStream as any).call(hub, nodeId, chunks);
+        });
+
+        const service = makeVoiceAutomationService({
+          voiceNodeHub: hub,
+          systemName: "housekeeper",
+          classifier: makeClassifier({ type: "unknown" }),
+          devices: makeDeviceRepo([]),
+          automations: makeAutomationRepo(),
+          speechOutput: output,
+          responseAudioCache: makeResponseAudioCache(confirmationAudio),
+        });
+
+        service.start();
+
+        // Stream initial device-control response
+        async function* controlResponse() {
+          yield Buffer.from("lights");
+          yield Buffer.from("on");
+        }
+        const token = await service.sendTtsStream(TEST_NODE_ID, controlResponse());
+        expect(sendTtsStreamCalls.length).toBe(1);
+
+        // User interrupts with stop-word during stream
+        emit("wait", TEST_NODE_ID);
+        await new Promise((r) => setTimeout(r, 50));
+
+        // Confirmation audio should have been played via sendTts (not sendTtsStream)
+        const confirmCalls = (hub.sendTts as any).mock.calls.filter(
+          (c: any[]) => c[1]?.equals(confirmationAudio),
+        );
+        expect(confirmCalls.length).toBeGreaterThan(0);
+
+        // User says "no" to keep the original stream
+        emit("no", TEST_NODE_ID);
+        await new Promise((r) => setTimeout(r, 100));
+
+        // Verify original stream was replayed (second call to sendTtsStream)
+        expect(sendTtsStreamCalls.length).toBeGreaterThan(1);
+      });
+
+      it("completes full interruption flow: stream → stop-word → yes → discard", async () => {
+        const { hub, emit } = makeVoiceNodeHub();
+        const { output, spoken } = makeSpeechOutput();
+        const confirmationAudio = Buffer.from("confirmation-wav");
+
+        const originalSendTtsStream = hub.sendTtsStream;
+        const sendTtsStreamCalls = [];
+        (hub as any).sendTtsStream = vi.fn(async (nodeId: string, chunks: AsyncIterable<Buffer>) => {
+          sendTtsStreamCalls.push({});
+          return await originalSendTtsStream.call(hub, nodeId, chunks);
+        });
+
+        const service = makeVoiceAutomationService({
+          voiceNodeHub: hub,
+          systemName: "housekeeper",
+          classifier: makeClassifier({ type: "unknown" }),
+          devices: makeDeviceRepo([]),
+          automations: makeAutomationRepo(),
+          speechOutput: output,
+          responseAudioCache: makeResponseAudioCache(confirmationAudio),
+        });
+
+        service.start();
+
+        // Stream initial response
+        async function* controlResponse() {
+          yield Buffer.from("lights");
+          yield Buffer.from("on");
+        }
+        const token = await service.sendTtsStream(TEST_NODE_ID, controlResponse());
+
+        const callsBeforeInterrupt = sendTtsStreamCalls.length;
+
+        // User interrupts with stop-word
+        emit("wait", TEST_NODE_ID);
+        await new Promise((r) => setTimeout(r, 50));
+
+        // User says "yes" to discard
+        emit("yes", TEST_NODE_ID);
+        await new Promise((r) => setTimeout(r, 50));
+
+        // Verify no replay occurred (same number of calls)
+        expect(sendTtsStreamCalls.length).toBe(callsBeforeInterrupt);
+      });
+    });
+
+    describe("Stream Lifecycle Orchestration (Phase 3: discard on yes response)", () => {
+      it("on yes response: discards stream token, does not replay", async () => {
+        const { hub, emit } = makeVoiceNodeHub();
+        const { output } = makeSpeechOutput();
+        const confirmationAudio = Buffer.from("confirmation-wav");
+
+        const originalSendTtsStream = hub.sendTtsStream;
+        const sendTtsStreamCalls: Array<{ nodeId: string }> = [];
+        (hub as any).sendTtsStream = vi.fn(async (nodeId: string, chunks: AsyncIterable<Buffer>) => {
+          sendTtsStreamCalls.push({ nodeId });
+          return await originalSendTtsStream.call(hub, nodeId, chunks);
+        });
+
+        const service = makeVoiceAutomationService({
+          voiceNodeHub: hub,
+          systemName: "housekeeper",
+          classifier: makeClassifier({ type: "unknown" }),
+          devices: makeDeviceRepo([]),
+          automations: makeAutomationRepo(),
+          speechOutput: output,
+          responseAudioCache: makeResponseAudioCache(confirmationAudio),
+        });
+
+        service.start();
+
+        // Stream some audio
+        async function* testChunks() {
+          yield Buffer.from("audio1");
+          yield Buffer.from("audio2");
+        }
+        const token = await service.sendTtsStream(TEST_NODE_ID, testChunks());
+
+        // Emit stop-word to trigger interruption
+        emit("wait", TEST_NODE_ID);
+        await new Promise((r) => setTimeout(r, 50));
+
+        const callsBeforeYes = sendTtsStreamCalls.length;
+
+        // Emit "yes" to discard (should NOT replay)
+        emit("yes", TEST_NODE_ID);
+        await new Promise((r) => setTimeout(r, 50));
+
+        // Verify sendTtsStream was NOT called again (no replay)
+        expect(sendTtsStreamCalls.length).toBe(callsBeforeYes);
+      });
+    });
+
     it("TRACER: plays confirmation audio when stop-word heard during ambient listening", async () => {
       const { hub, emit } = makeVoiceNodeHub();
       const { output } = makeSpeechOutput();

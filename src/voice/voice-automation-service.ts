@@ -67,6 +67,7 @@ interface VoiceAutomationServiceDeps {
 export interface VoiceAutomationService {
   start(): void;
   stop(): void;
+  sendTtsStream(nodeId: string, chunks: AsyncIterable<Buffer>): Promise<string>;
 }
 
 function toSpeakableLength(text: string, maxSentences = 2): string {
@@ -94,7 +95,7 @@ export function makeVoiceAutomationService({
   const windows = new Map<string, ListeningWindow>();
   const contexts = new Map<string, ConversationContext>();
   const inFlightStreams = new Map<string, { token: string; startTime: number }>();
-  const awaitingYesNoResponse = new Map<string, { stopWord: string; timeout: ReturnType<typeof setTimeout> }>();
+  const awaitingYesNoResponse = new Map<string, { stopWord: string; streamToken?: string; timeout: ReturnType<typeof setTimeout> }>();
 
   function getContext(nodeId: string): ConversationContext {
     if (!contexts.has(nodeId)) {
@@ -117,14 +118,34 @@ export function makeVoiceAutomationService({
               clearTimeout(entry.timeout);
               awaitingYesNoResponse.delete(nodeId);
               console.log(`[VoiceAutomation] Interruption: ${entry.stopWord} → confirmation played → yes → discard`);
-              // TODO: discard stream, dispatch unknown intent
+
+              // Discard in-flight stream token
+              if (entry.streamToken) {
+                inFlightStreams.delete(entry.streamToken);
+              }
               return;
             } else if (noRegex.test(text)) {
               const entry = awaitingYesNoResponse.get(nodeId)!;
               clearTimeout(entry.timeout);
               awaitingYesNoResponse.delete(nodeId);
               console.log(`[VoiceAutomation] Interruption: ${entry.stopWord} → confirmation played → no → replay`);
-              // TODO: replay stream
+
+              // Replay the original stream if token is available
+              if (entry.streamToken) {
+                const buffer = voiceNodeHub.getStreamBuffer(nodeId, entry.streamToken);
+                if (buffer && buffer.length > 0) {
+                  async function* replayChunks() {
+                    for (const chunk of buffer) {
+                      yield chunk;
+                    }
+                  }
+                  const window = getWindow(nodeId);
+                  window.setMode("stop-word-only");
+                  const replayToken = await voiceNodeHub.sendTtsStream(nodeId, replayChunks());
+                  inFlightStreams.set(replayToken, { token: replayToken, startTime: Date.now() });
+                  window.setMode("normal");
+                }
+              }
               return;
             }
           }
@@ -141,16 +162,36 @@ export function makeVoiceAutomationService({
               console.log("[VoiceAutomation] Interruption: stop-word → confirmation played");
               await voiceNodeHub.sendTts(nodeId, confirmationAudio);
 
+              // Capture in-flight stream token if one exists
+              const streamToken = Array.from(inFlightStreams.keys())[0];
+
               // Start 3-second window for yes/no response
-              const timeout = setTimeout(() => {
+              const timeout = setTimeout(async () => {
                 if (awaitingYesNoResponse.has(nodeId)) {
+                  const entry = awaitingYesNoResponse.get(nodeId)!;
                   awaitingYesNoResponse.delete(nodeId);
-                  console.log(`[VoiceAutomation] Interruption: ${stopWord} → confirmation played → timeout → replay`);
-                  // TODO: replay or fallback to unknown
+                  console.log(`[VoiceAutomation] Interruption: ${entry.stopWord} → confirmation played → timeout → replay`);
+
+                  // Try to replay stream if token available
+                  if (entry.streamToken) {
+                    const buffer = voiceNodeHub.getStreamBuffer(nodeId, entry.streamToken);
+                    if (buffer && buffer.length > 0) {
+                      async function* replayChunks() {
+                        for (const chunk of buffer) {
+                          yield chunk;
+                        }
+                      }
+                      const window = getWindow(nodeId);
+                      window.setMode("stop-word-only");
+                      const replayToken = await voiceNodeHub.sendTtsStream(nodeId, replayChunks());
+                      inFlightStreams.set(replayToken, { token: replayToken, startTime: Date.now() });
+                      window.setMode("normal");
+                    }
+                  }
                 }
               }, 3000);
 
-              awaitingYesNoResponse.set(nodeId, { stopWord, timeout });
+              awaitingYesNoResponse.set(nodeId, { stopWord, streamToken, timeout });
               return;
             }
           }
@@ -424,6 +465,14 @@ export function makeVoiceAutomationService({
   }
 
   return {
+    async sendTtsStream(nodeId: string, chunks: AsyncIterable<Buffer>): Promise<string> {
+      const window = getWindow(nodeId);
+      window.setMode("stop-word-only");
+      const token = await voiceNodeHub.sendTtsStream(nodeId, chunks);
+      inFlightStreams.set(token, { token, startTime: Date.now() });
+      window.setMode("normal");
+      return token;
+    },
     start() {
       console.log(`[VoiceAutomation] System name: "${systemName}"`);
       voiceNodeHub.onUtterance((nodeId, text) => {

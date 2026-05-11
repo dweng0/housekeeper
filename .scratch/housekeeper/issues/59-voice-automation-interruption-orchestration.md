@@ -2,6 +2,7 @@
 
 Status: ready-for-agent
 Category: enhancement
+Triage: Architecture clarified (ADR 0010), blockers resolved, implementation plan documented. Core behaviors done; stream lifecycle orchestration ready to build.
 
 ## What to build
 
@@ -35,6 +36,55 @@ Orchestrate full TTS interruption flow: mode switching on ListeningWindow, stop-
 ## Notes
 
 Yes/no classification can be simple keyword match for now (not LLM). Per ADR 0009.
+
+## Architecture (from grill session)
+
+Stream lifecycle orchestration documented in ADR 0010.
+
+**Five blockers resolved:**
+
+1. **Stream wrapper pattern** → Public `sendTtsStream(nodeId, chunks)` method on VoiceAutomationService
+   - Captures token from `voiceNodeHub.sendTtsStream()`
+   - Stores in `inFlightStreams` map
+   - Manages mode switching (normal → stop-word-only → normal)
+
+2. **Token preservation for replay** → Store token + fetch-on-replay approach
+   - On "no": fetch chunks via `voiceNodeHub.getStreamBuffer(nodeId, token)`
+   - On cache expiry: log warning, fallback to unknown intent (acceptable per spec)
+   - Cache TTL ~30s per ADR 0009
+
+3. **Context state timing** ✓ Already implemented (line 132 in current code)
+   - Stop-word check runs BEFORE context check
+
+4. **Mode switching** → Explicit setMode calls
+   - Before stream: `"stop-word-only"` (suppress ambient)
+   - After confirmation: `"normal"` (listen for yes/no)
+   - On resolution: `"normal"` (resume ambient)
+
+5. **Stream cancellation** → Discard token strategy
+   - No explicit cancel method needed
+   - Just remove from `inFlightStreams` + ignore chunks
+   - Device plays naturally; system suppresses audio input via mode
+
+## Implementation plan
+
+**Phase 1: Wrapper method**
+- Add `sendTtsStream(nodeId: string, chunks: AsyncIterable<Buffer>): Promise<string>` to VoiceAutomationService
+- Implement: capture token, track in `inFlightStreams`, switch mode before/after
+- Tests: verify mode switches, token tracked, completion cleans up
+
+**Phase 2: Stop-word → replay integration**
+- Wire "no" response (line 127) to call `voiceNodeHub.getStreamBuffer()` and replay
+- Wire timeout (line 149) to same replay logic
+- Tests: mock stop-word, verify replay fetches from cache, handles expiry
+
+**Phase 3: Stop-word → discard integration**
+- Wire "yes" response (line 120) to discard token, dispatch unknown intent
+- Tests: verify token discarded, unknown intent dispatched, mode reset
+
+**Phase 4: Integration test**
+- Mock Pi signals: TTS stream in-flight, stop-word utterance, yes/no response
+- Verify full flow: mode switches, confirmation plays, yes/no handled, logging correct
 
 ## Agent Brief
 
