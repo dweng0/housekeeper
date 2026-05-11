@@ -1437,5 +1437,43 @@ describe("VoiceAutomationService", () => {
       // (A device-control would have published to gateway)
       expect(published.length).toBe(0);
     });
+
+    it("logs interruption flow for debugging", async () => {
+      const { hub, emit } = makeVoiceNodeHub();
+      const { output } = makeSpeechOutput();
+      const confirmationAudio = Buffer.from("confirmation-wav");
+
+      const consoleSpy = vi.spyOn(console, "log");
+
+      const service = makeVoiceAutomationService({
+        voiceNodeHub: hub,
+        systemName: "housekeeper",
+        classifier: makeClassifier({ type: "unknown" }),
+        devices: makeDeviceRepo([]),
+        automations: makeAutomationRepo(),
+        speechOutput: output,
+        responseAudioCache: makeResponseAudioCache(confirmationAudio),
+      });
+
+      service.start();
+
+      // Test stop-word + yes flow
+      emit("wait", TEST_NODE_ID);
+      await new Promise((r) => setTimeout(r, 50));
+
+      emit("yes", TEST_NODE_ID);
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Verify logging messages were output
+      const logMessages = consoleSpy.mock.calls
+        .map((call) => call[0])
+        .filter((msg) => typeof msg === "string" && msg.includes("[VoiceAutomation] Interruption"));
+
+      expect(logMessages.length).toBeGreaterThan(0);
+      expect(logMessages.some((msg) => msg.includes("stop-word → confirmation played"))).toBe(true);
+      expect(logMessages.some((msg) => msg.includes("→ yes →"))).toBe(true);
+
+      consoleSpy.mockRestore();
+    });
   });
 });
