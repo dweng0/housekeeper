@@ -56,5 +56,15 @@ export function makeOpenAIResponseTextGenerator(opts: OpenAIResponseTextGenerato
 
       return callLlm(systemPrompt, userPrompt, count);
     },
+
+    async generateStopConfirmationVariants({ persona, count }) {
+      const systemPrompt = persona
+        ? `${persona}\n\nGenerate natural spoken confirmation phrases for stopping an action.`
+        : "You are a home automation assistant. Generate natural spoken confirmation phrases for stopping an action.";
+
+      const userPrompt = `Generate ${count} distinct spoken confirmation phrases to verify that the user wants to stop the current action. Each should be a question or clarification, brief (under 12 words), natural, and vary phrasing. Examples: "Did you want me to stop?", "Should I stop what I'm doing?". Return JSON: { "variants": ["...", "..."] }`;
+
+      return callLlm(systemPrompt, userPrompt, count);
+    },
   };
 }

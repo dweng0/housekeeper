@@ -20,11 +20,12 @@ export interface VoiceNodeHub {
   stop(): void;
   onUtterance(handler: (nodeId: string, transcript: string) => void): void;
   sendTts(nodeId: string, audio: Buffer): Promise<void>;
-  sendTtsStream(nodeId: string, chunks: AsyncIterable<Buffer>): Promise<void>;
+  sendTtsStream(nodeId: string, chunks: AsyncIterable<Buffer>): Promise<string>;
   sendConfig(nodeId: string, patch: VoiceNodeConfigPatch): Promise<void>;
   getNode(nodeId: string): VoiceNode | undefined;
   getConnectedNodes(): VoiceNode[];
   pushUtterance(nodeId: string, transcript: string): void;
+  getStreamBuffer(nodeId: string, token: string): Buffer[] | null;
   onNodeConfirmed?(nodeId: string): void;
 }
 
@@ -102,6 +103,7 @@ export interface MemoryStore {
 export interface ResponseAudioCache {
   lookup(opts: { deviceLabel: string; command: string }): Promise<Buffer | null>;
   lookupNotFound(): Promise<Buffer | null>;
+  lookupStopConfirmation(): Promise<Buffer | null>;
 }
 
 export interface TtsRenderer {
@@ -111,6 +113,7 @@ export interface TtsRenderer {
 export interface ResponseTextGenerator {
   generateVariants(opts: { deviceLabel: string; command: string; persona?: string; count: number }): Promise<string[]>;
   generateNotFoundVariants(opts: { persona?: string; count: number }): Promise<string[]>;
+  generateStopConfirmationVariants(opts: { persona?: string; count: number }): Promise<string[]>;
 }
 
 // Domain types

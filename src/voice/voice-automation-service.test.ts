@@ -355,6 +355,7 @@ describe("VoiceAutomationService", () => {
         return {
           lookup: vi.fn(async () => buffer),
           lookupNotFound: vi.fn(async () => notFoundBuffer),
+          lookupStopConfirmation: vi.fn(async () => null),
         };
       }
 
@@ -608,6 +609,7 @@ describe("VoiceAutomationService", () => {
       return {
         lookup: vi.fn(async () => buffer),
         lookupNotFound: vi.fn(async () => null),
+        lookupStopConfirmation: vi.fn(async () => null),
       };
     }
 

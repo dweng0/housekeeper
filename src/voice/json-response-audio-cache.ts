@@ -44,5 +44,12 @@ export function makeJsonResponseAudioCache(cacheDir: string): ResponseAudioCache
       if (!entry) return null;
       return pickRandom(entry.positive);
     },
+
+    async lookupStopConfirmation() {
+      const index = await getIndex();
+      const entry = index["__stop_confirmation__"];
+      if (!entry) return null;
+      return pickRandom(entry.positive);
+    },
   };
 }

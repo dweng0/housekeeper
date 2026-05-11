@@ -5,6 +5,7 @@ import type { Device, ResponseTextGenerator, TtsRenderer } from "../ports.js";
 type CacheIndex = Record<string, { positive: string[] }>;
 
 const NOT_FOUND_KEY = "__not_found__";
+const STOP_CONFIRMATION_KEY = "__stop_confirmation__";
 
 function toKey(deviceLabel: string, command: string): string {
   return `${deviceLabel}:${command}`;
@@ -77,9 +78,9 @@ export function makeResponseAudioCacheBuilder({
         }
       }
 
-      // Prune orphaned positive entries (never prune __not_found__)
+      // Prune orphaned positive entries (never prune __not_found__ or __stop_confirmation__)
       for (const key of Object.keys(index)) {
-        if (key === NOT_FOUND_KEY) continue;
+        if (key === NOT_FOUND_KEY || key === STOP_CONFIRMATION_KEY) continue;
         if (!currentPairs.has(key)) {
           console.log(`[CacheBuilder] pruning orphaned ${key}`);
           await rm(join(cacheDir, toSlug(key)), { recursive: true, force: true });
@@ -105,6 +106,15 @@ export function makeResponseAudioCacheBuilder({
         const texts = await textGenerator.generateNotFoundVariants({ count: variantCount });
         index[NOT_FOUND_KEY] = { positive: await renderAndSave(NOT_FOUND_KEY, texts) };
         console.log(`[CacheBuilder] done ${NOT_FOUND_KEY}`);
+      }
+
+      // Generate __stop_confirmation__ pool if missing or incomplete
+      const scEntry = index[STOP_CONFIRMATION_KEY];
+      if (!scEntry || !(await allFilesExist(cacheDir, scEntry.positive, variantCount))) {
+        console.log(`[CacheBuilder] generating ${STOP_CONFIRMATION_KEY}…`);
+        const texts = await textGenerator.generateStopConfirmationVariants({ count: variantCount });
+        index[STOP_CONFIRMATION_KEY] = { positive: await renderAndSave(STOP_CONFIRMATION_KEY, texts) };
+        console.log(`[CacheBuilder] done ${STOP_CONFIRMATION_KEY}`);
       }
 
       await mkdir(cacheDir, { recursive: true });

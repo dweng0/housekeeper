@@ -123,4 +123,63 @@ describe("makeJsonResponseAudioCache", () => {
     const result = await cache.lookupNotFound();
     expect(result).toEqual(Buffer.from("not-found-pcm"));
   });
+
+  it("lookupStopConfirmation returns audio from __stop_confirmation__ pool", async () => {
+    const cacheDir = await makeTempDir();
+    tmpDirs.push(cacheDir);
+
+    const scDir = join(cacheDir, "--stop-confirmation--");
+    await mkdir(scDir, { recursive: true });
+    await writeFile(join(scDir, "0.wav"), Buffer.from("stop-confirm-pcm-0"));
+    await writeFile(join(scDir, "1.wav"), Buffer.from("stop-confirm-pcm-1"));
+    await writeFile(
+      join(cacheDir, "index.json"),
+      JSON.stringify({
+        "__stop_confirmation__": {
+          positive: ["--stop-confirmation--/0.wav", "--stop-confirmation--/1.wav"],
+        },
+      }),
+    );
+
+    const cache = makeJsonResponseAudioCache(cacheDir);
+    const result = await cache.lookupStopConfirmation();
+
+    expect(result).toBeDefined();
+    expect([Buffer.from("stop-confirm-pcm-0"), Buffer.from("stop-confirm-pcm-1")]).toContainEqual(result);
+  });
+
+  it("lookupStopConfirmation returns null when __stop_confirmation__ not in index", async () => {
+    const cacheDir = await makeTempDir();
+    tmpDirs.push(cacheDir);
+
+    await writeFile(
+      join(cacheDir, "index.json"),
+      JSON.stringify({ "__not_found__": { positive: ["--not-found--/0.wav"] } }),
+    );
+
+    const cache = makeJsonResponseAudioCache(cacheDir);
+    const result = await cache.lookupStopConfirmation();
+
+    expect(result).toBeNull();
+  });
+
+  it("lookupStopConfirmation uses in-memory index after index.json deleted", async () => {
+    const cacheDir = await makeTempDir();
+    tmpDirs.push(cacheDir);
+
+    const scDir = join(cacheDir, "--stop-confirmation--");
+    await mkdir(scDir, { recursive: true });
+    await writeFile(join(scDir, "0.wav"), Buffer.from("stop-confirm-pcm"));
+    await writeFile(
+      join(cacheDir, "index.json"),
+      JSON.stringify({ "__stop_confirmation__": { positive: ["--stop-confirmation--/0.wav"] } }),
+    );
+
+    const cache = makeJsonResponseAudioCache(cacheDir);
+    await cache.lookupStopConfirmation(); // prime
+    await unlink(join(cacheDir, "index.json"));
+
+    const result = await cache.lookupStopConfirmation();
+    expect(result).toEqual(Buffer.from("stop-confirm-pcm"));
+  });
 });
