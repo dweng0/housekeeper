@@ -19,8 +19,12 @@ A single continuous spoken sentence or phrase, bounded by a Speech Boundary.
 _Avoid_: command, speech, input
 
 **Listening Window**:
-The fixed-duration rolling transcript maintained by always-on STT. When the system name is detected within it, the system enters capture mode and waits for a Speech Boundary before dispatching the full window for classification. During TTS playback, the Listening Window switches to "stop-word only" mode: ambient utterances are ignored, only Stop-word keywords are matched. The window resumes normal operation after TTS ends. Mode control is managed by `VoiceNodeHub` callbacks (`onTtsStart`/`onTtsEnd`) registered in `VoiceAutomationService`; see ADR 0011 for rationale.
+The fixed-duration rolling transcript maintained by always-on STT. When the system name is detected within it, the system enters capture mode and waits for a Speech Boundary before dispatching the full window for classification. During TTS playback, each mic-capable device performs local Acoustic Echo Cancellation (AEC) to remove speaker output from its microphone input; the Listening Window stays in normal mode, allowing Stop-word detection to work naturally. See ADR 0012 for rationale.
 _Avoid_: context window, audio buffer, transcript buffer
+
+**Acoustic Echo Cancellation (AEC)**:
+Server broadcasts TTS reference audio to all mic-capable devices when playback begins. Each device buffers the reference audio by timestamp and performs local echo cancellation (subtracting the known reference from microphone input), sending only the residual audio back to server. Prevents feedback loops where TTS echoes are captured as new utterances. Uses WebRTC AEC algorithm on edge devices.
+_Avoid_: echo suppression, echo gating, listening window mode switching
 
 **Speech Boundary**:
 The point of detected silence (via VAD debounce, ~700ms–1s) that closes the Listening Window and triggers dispatch to the directed-question classifier. Resets if new speech is detected before the threshold.
