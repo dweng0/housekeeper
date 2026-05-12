@@ -76,6 +76,55 @@ Sent in response to a valid `register` message.
 
 ---
 
+### `tts_stream_start`
+
+Sent when the server begins streaming TTS audio to this node. Signals that Pi should gate stop-word detection: suppress ambient listening and only match stop-words during the stream window.
+
+```json
+{
+  "type": "tts_stream_start",
+  "streamToken": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `streamToken` | `string` | Unique identifier for this stream. Correlates with `tts_stream_end`. |
+
+**Pi expected behavior:**
+- Gate stop-word detection: suppress ambient utterances, only match stop-word keywords
+- Log: "Stream started: {streamToken}"
+- Do NOT send acknowledgment
+
+**Edge cases:**
+- If `tts_stream_end` arrives before `tts_stream_start` (out-of-order): still restore normal listening on end
+- If stream window opens but no audio chunks arrive: restore listening after 30 seconds (timeout)
+- Connection drop during stream: implicit end on reconnect, resume normal listening
+
+---
+
+### `tts_stream_end`
+
+Sent when the server finishes streaming TTS audio to this node. Signals that Pi should restore normal listening operation.
+
+```json
+{
+  "type": "tts_stream_end",
+  "streamToken": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `streamToken` | `string` | Matches the `streamToken` from corresponding `tts_stream_start`. |
+
+**Pi expected behavior:**
+- Restore normal listening: resume ambient utterance detection
+- Log: "Stream complete: {streamToken}"
+- Do NOT send acknowledgment
+
+---
+
 ### `tts`
 
 Sent when the server has a spoken response for this node. Payload is binary (raw PCM, 22050 Hz, 16-bit signed LE — Piper output format).
@@ -145,21 +194,27 @@ ACK sent in response to `config_update`. Sent on success and failure.
 ## Connection lifecycle
 
 ```
-Node                          Server
- |                              |
- |--- connect ----------------->|
- |--- register ---------------->|
- |<-- registered ---------------|
- |                              |
- |--- utterance --------------->|  (repeated, as speech is detected)
- |<-- tts (binary) -------------|  (if Directed Question triggers response)
- |                              |
- |--- disconnect -------------->|  (or connection drops)
- |                              |  server retains ListeningWindow state
- |--- connect ----------------->|  (reconnect after network drop)
- |--- register ---------------->|  (same id)
- |<-- registered (reconnected) -|
+Node                                    Server
+ |                                       |
+ |--- connect --------------------------->|
+ |--- register --------------------------->|
+ |<--- registered ------------------------|
+ |                                       |
+ |--- utterance --------------------------->|  (speech detected)
+ |<--- tts_stream_start (streamToken) ----|  (Pi gates stop-word detection)
+ |<--- tts (binary chunks, repeated) -----|  (Pi plays audio)
+ |<--- tts_stream_end (streamToken) ------|  (Pi restores normal listening)
+ |                                       |
+ |--- utterance --------------------------->|  (repeated, as speech detected)
+ |                                       |
+ |--- disconnect ------------------------->|  (or connection drops)
+ |                                       |  server retains ListeningWindow state
+ |--- connect --------------------------->|  (reconnect after network drop)
+ |--- register --------------------------->|  (same id)
+ |<--- registered (reconnected) ---------|
 ```
+
+**TTS Stream Lifecycle**: When the server sends a spoken response with `tts_stream_start`, the Pi gates stop-word detection (suppresses ambient listening, only matches stop-words). After stream chunks complete, `tts_stream_end` signals Pi to restore normal listening.
 
 On disconnect, the server retains the node's Listening Window. Utterances from before the drop remain in context when the node reconnects.
 
