@@ -66,5 +66,15 @@ export function makeOpenAIResponseTextGenerator(opts: OpenAIResponseTextGenerato
 
       return callLlm(systemPrompt, userPrompt, count);
     },
+
+    async generateUnknownIntentVariants({ persona, count }) {
+      const systemPrompt = persona
+        ? `${persona}\n\nGenerate natural spoken phrases for when the user's request isn't understood.`
+        : "You are a home automation assistant. Generate natural spoken phrases for when the user's request isn't understood.";
+
+      const userPrompt = `Generate ${count} distinct spoken phrases to politely ask the user to repeat or rephrase their request. Each should be brief (under 12 words), natural, and vary phrasing. Examples: "Sorry, I didn't understand. Could you say that again?", "I'm not sure what you mean. Can you rephrase?". Return JSON: { "variants": ["...", "..."] }`;
+
+      return callLlm(systemPrompt, userPrompt, count);
+    },
   };
 }

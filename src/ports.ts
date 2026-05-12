@@ -106,6 +106,7 @@ export interface ResponseAudioCache {
   lookup(opts: { deviceLabel: string; command: string }): Promise<Buffer | null>;
   lookupNotFound(): Promise<Buffer | null>;
   lookupStopConfirmation(): Promise<Buffer | null>;
+  lookupUnknownIntentResponse(): Promise<Buffer | null>;
 }
 
 export interface TtsRenderer {
@@ -116,6 +117,7 @@ export interface ResponseTextGenerator {
   generateVariants(opts: { deviceLabel: string; command: string; persona?: string; count: number }): Promise<string[]>;
   generateNotFoundVariants(opts: { persona?: string; count: number }): Promise<string[]>;
   generateStopConfirmationVariants(opts: { persona?: string; count: number }): Promise<string[]>;
+  generateUnknownIntentVariants(opts: { persona?: string; count: number }): Promise<string[]>;
 }
 
 // Domain types

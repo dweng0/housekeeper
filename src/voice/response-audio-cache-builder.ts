@@ -6,6 +6,7 @@ type CacheIndex = Record<string, { positive: string[] }>;
 
 const NOT_FOUND_KEY = "__not_found__";
 const STOP_CONFIRMATION_KEY = "__stop_confirmation__";
+const UNKNOWN_INTENT_KEY = "__unknown_intent__";
 
 function toKey(deviceLabel: string, command: string): string {
   return `${deviceLabel}:${command}`;
@@ -78,9 +79,9 @@ export function makeResponseAudioCacheBuilder({
         }
       }
 
-      // Prune orphaned positive entries (never prune __not_found__ or __stop_confirmation__)
+      // Prune orphaned positive entries (never prune __not_found__, __stop_confirmation__, or __unknown_intent__)
       for (const key of Object.keys(index)) {
-        if (key === NOT_FOUND_KEY || key === STOP_CONFIRMATION_KEY) continue;
+        if (key === NOT_FOUND_KEY || key === STOP_CONFIRMATION_KEY || key === UNKNOWN_INTENT_KEY) continue;
         if (!currentPairs.has(key)) {
           console.log(`[CacheBuilder] pruning orphaned ${key}`);
           await rm(join(cacheDir, toSlug(key)), { recursive: true, force: true });
@@ -115,6 +116,15 @@ export function makeResponseAudioCacheBuilder({
         const texts = await textGenerator.generateStopConfirmationVariants({ count: variantCount });
         index[STOP_CONFIRMATION_KEY] = { positive: await renderAndSave(STOP_CONFIRMATION_KEY, texts) };
         console.log(`[CacheBuilder] done ${STOP_CONFIRMATION_KEY}`);
+      }
+
+      // Generate __unknown_intent__ pool if missing or incomplete
+      const uiEntry = index[UNKNOWN_INTENT_KEY];
+      if (!uiEntry || !(await allFilesExist(cacheDir, uiEntry.positive, variantCount))) {
+        console.log(`[CacheBuilder] generating ${UNKNOWN_INTENT_KEY}…`);
+        const texts = await textGenerator.generateUnknownIntentVariants({ count: variantCount });
+        index[UNKNOWN_INTENT_KEY] = { positive: await renderAndSave(UNKNOWN_INTENT_KEY, texts) };
+        console.log(`[CacheBuilder] done ${UNKNOWN_INTENT_KEY}`);
       }
 
       await mkdir(cacheDir, { recursive: true });

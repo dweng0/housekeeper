@@ -396,6 +396,14 @@ export function makeVoiceAutomationService({
                   outcome = "device-controlled";
                 }
               }
+            } else if (intent.type === "unknown") {
+              const cached = await responseAudioCache.lookupUnknownIntentResponse();
+              if (cached) {
+                await voiceNodeHub.sendTts(nodeId, cached);
+              } else {
+                await speechOutput.speak("Sorry, I didn't understand that. Could you repeat or rephrase?", nodeId);
+              }
+              outcome = "unknown-intent";
             } else if (intent.type !== "create-automation" || !intent.automation) {
               outcome = "unknown-intent";
             } else {

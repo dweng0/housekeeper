@@ -51,5 +51,12 @@ export function makeJsonResponseAudioCache(cacheDir: string): ResponseAudioCache
       if (!entry) return null;
       return pickRandom(entry.positive);
     },
+
+    async lookupUnknownIntentResponse() {
+      const index = await getIndex();
+      const entry = index["__unknown_intent__"];
+      if (!entry) return null;
+      return pickRandom(entry.positive);
+    },
   };
 }

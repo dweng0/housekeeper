@@ -1,6 +1,6 @@
 # VoiceAutomationService interruption orchestration
 
-Status: ready-for-agent
+Status: complete
 Category: enhancement
 Triage: Architecture clarified (ADR 0010), blockers resolved, implementation plan documented. Core behaviors done; stream lifecycle orchestration ready to build.
 
