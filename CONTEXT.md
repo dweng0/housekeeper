@@ -19,7 +19,7 @@ A single continuous spoken sentence or phrase, bounded by a Speech Boundary.
 _Avoid_: command, speech, input
 
 **Listening Window**:
-The fixed-duration rolling transcript maintained by always-on STT. When the system name is detected within it, the system enters capture mode and waits for a Speech Boundary before dispatching the full window for classification. During TTS playback, the Listening Window switches to "stop-word only" mode: ambient utterances are ignored, only Stop-word keywords are matched. The window resumes normal operation after TTS ends.
+The fixed-duration rolling transcript maintained by always-on STT. When the system name is detected within it, the system enters capture mode and waits for a Speech Boundary before dispatching the full window for classification. During TTS playback, the Listening Window switches to "stop-word only" mode: ambient utterances are ignored, only Stop-word keywords are matched. The window resumes normal operation after TTS ends. Mode control is managed by `VoiceNodeHub` callbacks (`onTtsStart`/`onTtsEnd`) registered in `VoiceAutomationService`; see ADR 0011 for rationale.
 _Avoid_: context window, audio buffer, transcript buffer
 
 **Speech Boundary**:
