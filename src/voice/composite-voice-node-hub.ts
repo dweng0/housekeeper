@@ -32,8 +32,8 @@ export function makeCompositeVoiceNodeHub(
       await resolveHub(nodeId).sendTts(nodeId, audio);
     },
 
-    async sendTtsStream(nodeId, chunks) {
-      return await resolveHub(nodeId).sendTtsStream(nodeId, chunks);
+    async sendTtsStream(nodeId, chunks, opts) {
+      return await resolveHub(nodeId).sendTtsStream(nodeId, chunks, opts);
     },
 
     async sendConfig(nodeId, patch: VoiceNodeConfigPatch) {

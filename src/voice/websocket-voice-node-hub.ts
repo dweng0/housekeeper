@@ -211,7 +211,7 @@ export function makeWebSocketVoiceNodeHub(
       await this.sendTtsStream(nodeId, singleChunk());
     },
 
-    async sendTtsStream(nodeId, chunks) {
+    async sendTtsStream(nodeId, chunks, opts) {
       const ws = connections.get(nodeId);
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         console.warn(`[VoiceNodeHub] sendTtsStream: node ${nodeId} not connected, dropping response`);
@@ -220,9 +220,11 @@ export function makeWebSocketVoiceNodeHub(
       const streamToken = randomUUID();
       const cacheKey = `${nodeId}:${streamToken}`;
       const bufferedChunks: Buffer[] = [];
+      const sampleRate = opts?.sampleRate ?? 24000;
+      const useForAec = opts?.useForAec ?? true;
 
       console.log(`[VoiceNodeHub] sendTtsStream: starting stream to ${nodeId}`);
-      sendJson(ws, { type: "tts_stream_start", streamToken });
+      sendJson(ws, { type: "tts_stream_start", streamToken, sampleRate, useForAec });
       for await (const chunk of chunks) {
         if (ws.readyState !== WebSocket.OPEN) break;
         bufferedChunks.push(chunk);

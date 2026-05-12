@@ -10,6 +10,7 @@ import type {
   ResponseAudioCache,
   VoiceNodeHub,
   SpeechOutput,
+  TtsStreamOptions,
 } from "../ports.js";
 import { nullResponseAudioCache } from "./null-response-audio-cache.js";
 import type { ResidentSession } from "../memory/resident-session.js";
@@ -67,7 +68,7 @@ interface VoiceAutomationServiceDeps {
 export interface VoiceAutomationService {
   start(): void;
   stop(): void;
-  sendTtsStream(nodeId: string, chunks: AsyncIterable<Buffer>): Promise<string>;
+  sendTtsStream(nodeId: string, chunks: AsyncIterable<Buffer>, opts?: TtsStreamOptions): Promise<string>;
 }
 
 function toSpeakableLength(text: string, maxSentences = 2): string {
@@ -475,10 +476,10 @@ export function makeVoiceAutomationService({
   }
 
   return {
-    async sendTtsStream(nodeId: string, chunks: AsyncIterable<Buffer>): Promise<string> {
+    async sendTtsStream(nodeId: string, chunks: AsyncIterable<Buffer>, opts?: TtsStreamOptions): Promise<string> {
       const window = getWindow(nodeId);
       window.setMode("stop-word-only");
-      const token = await voiceNodeHub.sendTtsStream(nodeId, chunks);
+      const token = await voiceNodeHub.sendTtsStream(nodeId, chunks, opts);
       inFlightStreams.set(token, { token, startTime: Date.now() });
       return token;
     },

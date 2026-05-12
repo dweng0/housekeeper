@@ -226,10 +226,39 @@ describe("WebSocketVoiceNodeHub — sendTtsStream", () => {
     await hub.sendTtsStream("node-hall", chunks());
 
     await vi.waitFor(() => expect(received).toHaveLength(4), { timeout: 1000 });
-    expect(received[0]).toMatchObject({ type: "tts_stream_start" });
+    expect(received[0]).toMatchObject({
+      type: "tts_stream_start",
+      sampleRate: 24000,
+      useForAec: true,
+    });
     expect(received[1]).toMatchObject({ type: "binary", data: Buffer.from("chunk-1") });
     expect(received[2]).toMatchObject({ type: "binary", data: Buffer.from("chunk-2") });
     expect(received[3]).toMatchObject({ type: "tts_stream_end" });
+  });
+
+  it("sendTtsStream respects opts (sampleRate + useForAec=false)", async () => {
+    client = await connect(port);
+    const regReply = nextMessage(client);
+    client.send(registerMessage());
+    await regReply;
+
+    const received: unknown[] = [];
+    client.on("message", (data, isBinary) => {
+      if (!isBinary) received.push(JSON.parse(data.toString()));
+    });
+
+    async function* chunks() {
+      yield Buffer.from("x");
+    }
+
+    await hub.sendTtsStream("node-hall", chunks(), { sampleRate: 16000, useForAec: false });
+
+    await vi.waitFor(() => expect(received.length).toBeGreaterThanOrEqual(2), { timeout: 1000 });
+    expect(received[0]).toMatchObject({
+      type: "tts_stream_start",
+      sampleRate: 16000,
+      useForAec: false,
+    });
   });
 
   it("sendTtsStream to unknown node is silent no-op and returns streamToken", async () => {

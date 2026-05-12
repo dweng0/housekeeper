@@ -15,6 +15,17 @@ export interface VoiceNodeConfigPatch {
   devices?: { input?: string; output?: string };
 }
 
+/**
+ * Options for tts_stream_start. Defaults: sampleRate=24000 (Kokoro PCM), useForAec=true.
+ * Voicenode (Pi) tees AEC reference from the playback stream when useForAec is true,
+ * resampling internally to its APM rate (16000). sampleRate must match the raw PCM rate
+ * of the chunks being streamed so the Pi plays at the correct pitch.
+ */
+export interface TtsStreamOptions {
+  sampleRate?: number;
+  useForAec?: boolean;
+}
+
 export interface VoiceNodeHub {
   start(): void;
   stop(): void;
@@ -22,7 +33,7 @@ export interface VoiceNodeHub {
   onStopWord?(handler: (nodeId: string, keyword: string) => void): void;
   onTtsStreamComplete?(handler: (nodeId: string, streamToken: string) => void): void;
   sendTts(nodeId: string, audio: Buffer): Promise<void>;
-  sendTtsStream(nodeId: string, chunks: AsyncIterable<Buffer>): Promise<string>;
+  sendTtsStream(nodeId: string, chunks: AsyncIterable<Buffer>, opts?: TtsStreamOptions): Promise<string>;
   sendConfig(nodeId: string, patch: VoiceNodeConfigPatch): Promise<void>;
   getNode(nodeId: string): VoiceNode | undefined;
   getConnectedNodes(): VoiceNode[];

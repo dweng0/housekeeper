@@ -20,6 +20,10 @@ function makeTextGenerator(variants = ["Done.", "Got it.", "Sure thing."]): Resp
     }),
     generateNotFoundVariants: vi.fn(async () => ["I don't know that device.", "That device isn't registered.", "No device found."]),
     generateStopConfirmationVariants: vi.fn(async ({ count }) => allStopConfirmationVariants.slice(0, count)),
+    generateUnknownIntentVariants: vi.fn(async ({ count }) => {
+      const variants = ["I didn't catch that.", "Could you repeat?", "Not sure what you meant.", "Say again?", "I missed that."];
+      return variants.slice(0, count);
+    }),
   };
 }
 
@@ -58,7 +62,7 @@ describe("ResponseAudioCacheBuilder", () => {
     expect(textGen.calls).toHaveLength(2);
     expect(textGen.calls).toContainEqual({ deviceLabel: "Porch Light", command: "on" });
     expect(textGen.calls).toContainEqual({ deviceLabel: "Porch Light", command: "off" });
-    expect(renderMock).toHaveBeenCalledTimes(12); // 3 variants × 2 commands (6) + 3 for __not_found__ + 3 for __stop_confirmation__
+    expect(renderMock).toHaveBeenCalledTimes(15); // 3 variants × 2 commands (6) + 3 for __not_found__ + 3 for __stop_confirmation__ + 3 for __unknown_intent__
 
     const raw = await readFile(join(cacheDir, "index.json"), "utf-8");
     const index = JSON.parse(raw) as Record<string, { positive: string[] }>;
@@ -88,12 +92,19 @@ describe("ResponseAudioCacheBuilder", () => {
     for (let i = 0; i < 3; i++) {
       await writeFile(join(scDir, `${i}.wav`), Buffer.from("existing"));
     }
+    const uiSlug = "--unknown-intent--";
+    const uiDir = join(cacheDir, uiSlug);
+    await mkdir(uiDir, { recursive: true });
+    for (let i = 0; i < 3; i++) {
+      await writeFile(join(uiDir, `${i}.wav`), Buffer.from("existing"));
+    }
     await writeFile(
       join(cacheDir, "index.json"),
       JSON.stringify({
         "Porch Light:on": { positive: [`${slug}/0.wav`, `${slug}/1.wav`, `${slug}/2.wav`] },
         "__not_found__": { positive: [`${nfSlug}/0.wav`, `${nfSlug}/1.wav`, `${nfSlug}/2.wav`] },
         "__stop_confirmation__": { positive: [`${scSlug}/0.wav`, `${scSlug}/1.wav`, `${scSlug}/2.wav`] },
+        "__unknown_intent__": { positive: [`${uiSlug}/0.wav`, `${uiSlug}/1.wav`, `${uiSlug}/2.wav`] },
       }),
     );
 
@@ -241,11 +252,18 @@ describe("ResponseAudioCacheBuilder", () => {
     for (let i = 0; i < 3; i++) {
       await writeFile(join(scDir, `${i}.wav`), Buffer.from("existing"));
     }
+    const uiSlug = "--unknown-intent--";
+    const uiDir = join(cacheDir, uiSlug);
+    await mkdir(uiDir, { recursive: true });
+    for (let i = 0; i < 3; i++) {
+      await writeFile(join(uiDir, `${i}.wav`), Buffer.from("existing"));
+    }
     await writeFile(
       join(cacheDir, "index.json"),
       JSON.stringify({
         "__not_found__": { positive: [`${slug}/0.wav`, `${slug}/1.wav`, `${slug}/2.wav`] },
         "__stop_confirmation__": { positive: [`${scSlug}/0.wav`, `${scSlug}/1.wav`, `${scSlug}/2.wav`] },
+        "__unknown_intent__": { positive: [`${uiSlug}/0.wav`, `${uiSlug}/1.wav`, `${uiSlug}/2.wav`] },
       }),
     );
 
@@ -296,11 +314,18 @@ describe("ResponseAudioCacheBuilder", () => {
     for (let i = 0; i < 3; i++) {
       await writeFile(join(nfDir, `${i}.wav`), Buffer.from("existing"));
     }
+    const uiSlug = "--unknown-intent--";
+    const uiDir = join(cacheDir, uiSlug);
+    await mkdir(uiDir, { recursive: true });
+    for (let i = 0; i < 3; i++) {
+      await writeFile(join(uiDir, `${i}.wav`), Buffer.from("existing"));
+    }
     await writeFile(
       join(cacheDir, "index.json"),
       JSON.stringify({
         "__stop_confirmation__": { positive: [`${slug}/0.wav`, `${slug}/1.wav`, `${slug}/2.wav`] },
         "__not_found__": { positive: [`${nfSlug}/0.wav`, `${nfSlug}/1.wav`, `${nfSlug}/2.wav`] },
+        "__unknown_intent__": { positive: [`${uiSlug}/0.wav`, `${uiSlug}/1.wav`, `${uiSlug}/2.wav`] },
       }),
     );
 

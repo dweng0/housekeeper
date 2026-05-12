@@ -193,7 +193,7 @@ describe("OpenAIIntentClassifier", () => {
     expect(result.hedgedResponse).toBeDefined();
   });
 
-  it("system prompt instructs LLM to return intentConfidence and hedgedResponse", async () => {
+  it("system prompt instructs LLM to return intentConfidence and a low-confidence question field", async () => {
     const fetchSpy = mockFetch({ choices: [{ message: { content: JSON.stringify({ type: "unknown" }) } }] });
 
     const classifier = makeOpenAIIntentClassifier({ endpoint, model, devices: makeDeviceRepo([]) });
@@ -202,7 +202,7 @@ describe("OpenAIIntentClassifier", () => {
     const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
     const systemPrompt = body.messages[0].content as string;
     expect(systemPrompt).toContain("intentConfidence");
-    expect(systemPrompt).toContain("hedgedResponse");
+    expect(systemPrompt).toContain("clarifyingQuestion");
   });
 
   it("prepends conversationHistory turns between system prompt and current utterance", async () => {

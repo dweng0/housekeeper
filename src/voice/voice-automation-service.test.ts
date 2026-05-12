@@ -174,7 +174,7 @@ describe("VoiceAutomationService", () => {
     expect(spoken[0].nodeId).toBe(TEST_NODE_ID);
   });
 
-  it("does nothing for unknown intent", async () => {
+  it("speaks fallback reply and saves nothing for unknown intent", async () => {
     const { hub, emit } = makeVoiceNodeHub();
     const automationRepo = makeAutomationRepo();
     const { output, spoken } = makeSpeechOutput();
@@ -190,10 +190,10 @@ describe("VoiceAutomationService", () => {
 
     service.start();
     emit("housekeeper");
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.waitFor(() => expect(spoken).toHaveLength(1));
 
     expect(automationRepo.saved).toHaveLength(0);
-    expect(spoken).toHaveLength(0);
+    expect(spoken[0].text).toMatch(/didn't understand|repeat|rephrase/i);
   });
 
   it("does not classify utterances without System Name", async () => {

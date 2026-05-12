@@ -32,8 +32,8 @@ interface OpenAiTtsAdapterOptions {
 
 export class OpenAiTtsAdapter implements SpeechOutput {
   private readonly endpoint: string;
-  private readonly model: string;
-  private readonly voice: string;
+  private readonly model: string | undefined;
+  private readonly voice: string | undefined;
   private readonly apiKey: string | undefined;
   private readonly hub: VoiceNodeHub;
   private readonly config: ConfigRepository;
@@ -41,8 +41,8 @@ export class OpenAiTtsAdapter implements SpeechOutput {
 
   constructor({ endpoint, model, voice, apiKey, voiceNodeHub, config, fetch }: OpenAiTtsAdapterOptions) {
     this.endpoint = endpoint.replace(/\/$/, "");
-    this.model = model ?? "tts-1";
-    this.voice = voice ?? "alloy";
+    this.model = model;
+    this.voice = voice;
     this.apiKey = apiKey;
     this.hub = voiceNodeHub;
     this.config = config;
@@ -73,34 +73,53 @@ export class OpenAiTtsAdapter implements SpeechOutput {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`;
 
+    const body: Record<string, unknown> = { input: text };
+    if (this.model) {
+      body.model = this.model;
+      body.voice = this.voice;
+      body.response_format = "pcm";
+      body.stream = true;
+    }
+
+    console.log(`[TTS] request body: ${JSON.stringify(body)}`);
     const res = await this.fetch(`${this.endpoint}/v1/audio/speech`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ input: text }),
+      body: JSON.stringify(body),
     });
 
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`TTS HTTP ${res.status}: ${body}`);
+      const errBody = await res.text().catch(() => "");
+      console.error(`[TTS] HTTP ${res.status}: ${errBody}`);
+      throw new Error(`TTS HTTP ${res.status}: ${errBody}`);
     }
 
     if (!res.body) {
+      console.error("[TTS] response has no body");
       throw new Error("TTS response has no body");
     }
 
+    let bytesYielded = 0;
     for await (const chunk of res.body as any) {
+      bytesYielded += (chunk as Buffer).length;
       yield chunk as Buffer;
     }
+    console.log(`[TTS] renderStreaming complete: ${bytesYielded} bytes`);
   }
 
   private async render(text: string): Promise<Buffer> {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`;
 
+    const body: Record<string, unknown> = { input: text };
+    if (this.model) body.model = this.model;
+    if (this.voice) body.voice = this.voice;
+    body.response_format = "pcm";
+
     const res = await this.fetch(`${this.endpoint}/v1/audio/speech`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ input: text }),
+      body: JSON.stringify(body),
     });
 
     if (!res.ok) {

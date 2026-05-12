@@ -7,6 +7,7 @@ import type {
   CastClientFactory,
   CastClient,
   AudioFileServer,
+  TtsStreamOptions,
 } from "../ports.js";
 
 interface CastVoiceNodeHubDeps {
@@ -20,7 +21,7 @@ export interface CastVoiceNodeHub {
   start(): void;
   stop(): void;
   sendTts(nodeId: string, audio: Buffer): Promise<void>;
-  sendTtsStream(nodeId: string, chunks: AsyncIterable<Buffer>): Promise<string>;
+  sendTtsStream(nodeId: string, chunks: AsyncIterable<Buffer>, opts?: TtsStreamOptions): Promise<string>;
   getNode(nodeId: string): VoiceNode | undefined;
   getConnectedNodes(): VoiceNode[];
   onNodeConfirmed(nodeId: string): void;
@@ -118,7 +119,8 @@ export function makeCastVoiceNodeHub({
       setTimeout(cleanup, 30_000);
     },
 
-    async sendTtsStream(nodeId, chunks) {
+    async sendTtsStream(nodeId, chunks, _opts) {
+      // Cast nodes are speaker-only; AEC and sampleRate flags are ignored.
       const streamToken = randomUUID();
       let client = clients.get(nodeId) ?? await connecting.get(nodeId);
       if (!client) {
