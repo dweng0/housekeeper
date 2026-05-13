@@ -222,7 +222,9 @@ describe("OpenAIIntentClassifier", () => {
     expect(messages[0].role).toBe("system");
     expect(messages[1]).toEqual({ role: "user", content: "turn on the porch light" });
     expect(messages[2]).toEqual({ role: "assistant", content: "Done — porch light is on." });
-    expect(messages[3]).toEqual({ role: "user", content: "actually turn it off" });
+    expect(messages[3].role).toBe("user");
+    expect(messages[3].content).toContain("actually turn it off");
+    expect(messages[3].content).toContain("[Respond with valid JSON only. No prose.]");
     expect(messages).toHaveLength(4);
   });
 

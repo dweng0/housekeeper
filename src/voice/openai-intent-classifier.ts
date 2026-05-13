@@ -106,7 +106,7 @@ export function makeOpenAIIntentClassifier(opts: OpenAIClassifierOptions): Inten
             messages: [
               { role: "system", content: buildSystemPrompt(deviceLabels, memories, location, persona, systemName) },
               ...conversationHistory,
-              { role: "user", content: utterance },
+              { role: "user", content: `${utterance}\n\n[Respond with valid JSON only. No prose.]` },
             ],
             response_format: { type: "json_object" },
           }),
