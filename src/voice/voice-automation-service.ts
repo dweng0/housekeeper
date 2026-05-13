@@ -21,6 +21,7 @@ import { makeConversationContext } from "./conversation-context.js";
 import type { ConversationContext } from "./conversation-context.js";
 
 const DEFAULT_HISTORY_TOKEN_BUDGET = 4_000;
+const DEFAULT_CONVERSATION_IDLE_TIMEOUT_MS = 30_000;
 
 // ===================================================================
 // ISSUE #59: VoiceAutomationService Interruption Orchestration
@@ -98,9 +99,9 @@ export function makeVoiceAutomationService({
   const inFlightStreams = new Map<string, { token: string; startTime: number }>();
   const awaitingYesNoResponse = new Map<string, { stopWord: string; streamToken?: string; timeout: ReturnType<typeof setTimeout> }>();
 
-  function getContext(nodeId: string): ConversationContext {
+  function getContext(nodeId: string, idleTimeoutMs?: number): ConversationContext {
     if (!contexts.has(nodeId)) {
-      contexts.set(nodeId, makeConversationContext());
+      contexts.set(nodeId, makeConversationContext({ idleTimeoutMs }));
     }
     return contexts.get(nodeId)!;
   }
@@ -199,12 +200,13 @@ export function makeVoiceAutomationService({
             }
           }
 
-          const ctx = getContext(nodeId);
-          if (!ctx.isOpen()) return;
-
           const cfg = config ? await config.get() : null;
           const threshold = cfg?.intentConfidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD;
           const historyTokenBudget = cfg?.historyTokenBudget ?? DEFAULT_HISTORY_TOKEN_BUDGET;
+          const idleTimeoutMs = cfg?.conversationIdleTimeoutMs ?? DEFAULT_CONVERSATION_IDLE_TIMEOUT_MS;
+
+          const ctx = getContext(nodeId, idleTimeoutMs);
+          if (!ctx.isOpen()) return;
 
           const history = ctx.getHistory(historyTokenBudget);
           const residentId = session?.getResidentId();
@@ -313,7 +315,8 @@ export function makeVoiceAutomationService({
         onDirectedQuestion: async (transcript) => {
           const cfg = config ? await config.get() : null;
           const threshold = cfg?.intentConfidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD;
-          getContext(nodeId).reset();
+          const idleTimeoutMs = cfg?.conversationIdleTimeoutMs ?? DEFAULT_CONVERSATION_IDLE_TIMEOUT_MS;
+          getContext(nodeId, idleTimeoutMs).reset();
           let intent = { type: "unknown" } as import("../ports.js").ClassifiedIntent;
           let outcome: DirectedQuestionOutcome = "unknown-intent";
           let respondedText: string | undefined;

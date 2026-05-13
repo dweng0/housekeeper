@@ -10,14 +10,25 @@ export interface ConversationContext {
   reset(): void;
 }
 
-export function makeConversationContext(): ConversationContext {
+export interface ConversationContextOptions {
+  idleTimeoutMs?: number;
+  now?: () => number;
+}
+
+const DEFAULT_IDLE_TIMEOUT_MS = 30_000;
+
+export function makeConversationContext(opts: ConversationContextOptions = {}): ConversationContext {
+  const idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
+  const now = opts.now ?? Date.now;
   let turns: ConversationTurn[] = [];
   let open = false;
+  let lastTurnAt = 0;
 
   return {
     addTurn(userUtterance, systemResponse) {
       turns.push({ userUtterance, systemResponse });
       open = true;
+      lastTurnAt = now();
     },
 
     getHistory(tokenBudget) {
@@ -35,12 +46,13 @@ export function makeConversationContext(): ConversationContext {
     },
 
     isOpen() {
-      return open && turns.length > 0;
+      return open && turns.length > 0 && now() - lastTurnAt < idleTimeoutMs;
     },
 
     reset() {
       turns = [];
       open = false;
+      lastTurnAt = 0;
     },
   };
 }

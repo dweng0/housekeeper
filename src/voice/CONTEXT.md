@@ -57,7 +57,7 @@ The natural-language text the LLM generates alongside a Classified Intent, spoke
 _Avoid_: reply, message, feedback string
 
 **Classified Intent**:
-The structured output of the Intent Classifier for a Directed Question. Carries a `type` discriminator (`device-control`, `create-automation`, `set-resident`, `query`, `unknown`), type-specific fields, an optional `residentName` (present when the speaker identifies themselves in the same utterance as an action), an optional `response` (the Confirmation Response), an optional `hedgedResponse` (the Hedged Response), and an `intentConfidence` score (0–1).
+The structured output of the Intent Classifier for a Directed Question. Carries a `type` discriminator (`device-control`, `create-automation`, `set-resident`, `query`, `unknown`), type-specific fields, an optional `residentName` (present when the speaker identifies themselves in the same utterance as an action), an optional `response` (the Confirmation Response), an optional `hedgedResponse` (the Hedged Response), and an `intentConfidence` score (0–1). Inside an open Conversation Context, conversational follow-ups (chitchat) are returned as `type: "query"` with a `spokenResponse` and no external lookup — see ADR 0014.
 _Avoid_: parsed command, NLU result
 
 **Intent Confidence**:
@@ -81,8 +81,12 @@ One WAV file within a Pre-rendered Response or the `__not_found__` pool. Selecte
 _Avoid_: audio file, take, sample
 
 **Conversation Context**:
-The active per-Voice-Node thread of exchanges that opens after a Directed Question receives a spoken response. While open, subsequent Utterances are treated as Follow-up Utterances and routed to the system without requiring the System Name. Scoped per Voice Node. Resets on: a new Directed Question, a Resident change (`set-resident` intent), or when conversation history exceeds the token budget.
+The active per-Voice-Node thread of exchanges that opens after a Directed Question receives a spoken response. While open, subsequent Utterances are treated as Follow-up Utterances and routed to the system without requiring the System Name. Scoped per Voice Node. Closes on: a new Directed Question, a Resident change (`set-resident` intent), conversation history exceeding the token budget, or the Conversation Idle Timeout elapsing.
 _Avoid_: context window, conversation session, dialogue state
+
+**Conversation Idle Timeout**:
+The wall-clock duration of silence after the last Conversation Turn that closes a Conversation Context. Default 30 seconds, configurable. Checked lazily on `isOpen()` — no background timer. Once elapsed, the next Utterance is treated as ambient; the System Name must be re-spoken to reopen the dialogue. See ADR 0013.
+_Avoid_: TTL, expiry, conversation timeout
 
 **Follow-up Utterance**:
 An Utterance that arrives while a Conversation Context is open and does not contain the System Name. Routed to the Intent Classifier with the full Conversation History attached. All intent types are valid — a Follow-up Utterance may control a device, create an Automation, or ask a query, resolved against the prior exchange.

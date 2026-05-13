@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { makeConversationContext } from "./conversation-context.js";
 
 describe("ConversationContext", () => {
@@ -44,6 +44,57 @@ describe("ConversationContext", () => {
   it("getHistory returns empty array when context has no turns", () => {
     const ctx = makeConversationContext();
     expect(ctx.getHistory(10_000)).toEqual([]);
+  });
+
+  describe("idle timeout", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-05-12T12:00:00Z"));
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("isOpen returns false once idleTimeoutMs has elapsed since last addTurn", () => {
+      const ctx = makeConversationContext({ idleTimeoutMs: 30_000 });
+      ctx.addTurn("hello", "hi");
+      vi.advanceTimersByTime(30_000);
+      expect(ctx.isOpen()).toBe(false);
+    });
+
+    it("isOpen still true just before idleTimeoutMs elapses", () => {
+      const ctx = makeConversationContext({ idleTimeoutMs: 30_000 });
+      ctx.addTurn("hello", "hi");
+      vi.advanceTimersByTime(29_999);
+      expect(ctx.isOpen()).toBe(true);
+    });
+
+    it("addTurn after idle close reopens the context and refreshes lastTurnAt", () => {
+      const ctx = makeConversationContext({ idleTimeoutMs: 30_000 });
+      ctx.addTurn("hello", "hi");
+      vi.advanceTimersByTime(60_000);
+      expect(ctx.isOpen()).toBe(false);
+      ctx.addTurn("again", "ok");
+      expect(ctx.isOpen()).toBe(true);
+      vi.advanceTimersByTime(29_999);
+      expect(ctx.isOpen()).toBe(true);
+    });
+
+    it("default idleTimeoutMs is 30_000 when not provided", () => {
+      const ctx = makeConversationContext();
+      ctx.addTurn("hello", "hi");
+      vi.advanceTimersByTime(29_999);
+      expect(ctx.isOpen()).toBe(true);
+      vi.advanceTimersByTime(1);
+      expect(ctx.isOpen()).toBe(false);
+    });
+
+    it("reset closes the context immediately regardless of timeout", () => {
+      const ctx = makeConversationContext({ idleTimeoutMs: 30_000 });
+      ctx.addTurn("hello", "hi");
+      ctx.reset();
+      expect(ctx.isOpen()).toBe(false);
+    });
   });
 
   it("getHistory returns turns as classifier-shaped user/assistant pairs", () => {

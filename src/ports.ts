@@ -213,6 +213,7 @@ export interface AppConfig {
   responseCacheVariantCount?: number;
   intentConfidenceThreshold?: number;
   historyTokenBudget?: number;
+  conversationIdleTimeoutMs?: number;
   ttsStreamingEnabled?: boolean;
 }
 
