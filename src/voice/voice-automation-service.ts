@@ -22,6 +22,7 @@ import type { ConversationContext } from "./conversation-context.js";
 
 const DEFAULT_HISTORY_TOKEN_BUDGET = 4_000;
 const DEFAULT_CONVERSATION_IDLE_TIMEOUT_MS = 30_000;
+const DEFAULT_CONVERSATION_FINISHED_THRESHOLD = 0.5;
 
 // ===================================================================
 // ISSUE #59: VoiceAutomationService Interruption Orchestration
@@ -206,7 +207,9 @@ export function makeVoiceAutomationService({
           const idleTimeoutMs = cfg?.conversationIdleTimeoutMs ?? DEFAULT_CONVERSATION_IDLE_TIMEOUT_MS;
 
           const ctx = getContext(nodeId, idleTimeoutMs);
-          if (!ctx.isOpen()) return;
+          const open = ctx.isOpen();
+          console.log(`[VoiceAutomation] ambient utterance "${text}" — context open=${open}`);
+          if (!open) return;
 
           const history = ctx.getHistory(historyTokenBudget);
           const residentId = session?.getResidentId();
@@ -223,10 +226,20 @@ export function makeVoiceAutomationService({
           });
 
           const isLowConfidence = intent.intentConfidence !== undefined && intent.intentConfidence < threshold;
+          const finishedThreshold = cfg?.conversationFinishedThreshold ?? DEFAULT_CONVERSATION_FINISHED_THRESHOLD;
+          const finished = intent.conversationFinished ?? 0;
+          const shouldCloseContext = finished >= finishedThreshold;
+          
+          console.log(`[VoiceAutomation] conversationFinished=${finished}, threshold=${finishedThreshold}, shouldClose=${shouldCloseContext}`);
+          
+          if (shouldCloseContext) {
+            console.log("[VoiceAutomation] Conversation finished signal — resetting context BEFORE speech");
+            ctx.reset();
+          }
+          
           let spokenResponse: string | undefined;
 
           try {
-            // Determine what to speak: clarifyingQuestion on low confidence, fallback to hedgedResponse or response
             if (isLowConfidence && (intent.clarifyingQuestion || intent.hedgedResponse)) {
               spokenResponse = intent.clarifyingQuestion ?? intent.hedgedResponse!;
               await speechOutput.speak(spokenResponse, nodeId);
@@ -308,8 +321,9 @@ export function makeVoiceAutomationService({
           } catch (err) {
             console.error("[VoiceAutomation] ambient utterance error:", err instanceof Error ? err.message : err);
           } finally {
-            // Always add turn to context, even for unknown or clarifications
-            ctx.addTurn(text, spokenResponse ?? "");
+            if (!shouldCloseContext) {
+              ctx.addTurn(text, spokenResponse ?? "");
+            }
           }
         },
         onDirectedQuestion: async (transcript) => {

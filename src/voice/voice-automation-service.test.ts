@@ -940,6 +940,198 @@ describe("VoiceAutomationService", () => {
         ],
       });
     });
+
+    describe("Conversation Finished signal", () => {
+      const DEFAULT_THRESHOLD = 0.5;
+
+      it("high conversationFinished (>= threshold) closes context after response", async () => {
+        const { hub, emit } = makeVoiceNodeHub();
+        const { output, spoken } = makeSpeechOutput();
+        const { gateway } = makeGateway();
+
+        const firstIntent: ClassifiedIntent = {
+          type: "device-control",
+          deviceLabel: "Porch Light",
+          command: "on",
+          response: "Done — porch light is on.",
+        };
+        let call = 0;
+        const classifySpy = vi.fn().mockImplementation(async () => {
+          if (call++ === 0) return firstIntent;
+          return { type: "query", response: "Let me know if you need anything else.", conversationFinished: 0.8 };
+        });
+
+        const mockConfig: ConfigRepository = {
+          get: async () => ({ autoDiscovery: false, conversationFinishedThreshold: DEFAULT_THRESHOLD }),
+          save: async () => {},
+        };
+
+        const service = makeVoiceAutomationService({
+          voiceNodeHub: hub,
+          systemName: "housekeeper",
+          classifier: { classify: classifySpy },
+          devices: makeDeviceRepo([actuator]),
+          automations: makeAutomationRepo(),
+          speechOutput: output,
+          gateway,
+          config: mockConfig,
+        });
+
+        service.start();
+        emit("housekeeper turn on the porch light");
+        await vi.waitFor(() => expect(spoken).toHaveLength(1));
+        await Promise.resolve();
+
+        emit("thanks");
+        await vi.waitFor(() => expect(spoken).toHaveLength(2));
+        await Promise.resolve();
+
+        emit("what else");
+        await new Promise((r) => setTimeout(r, 50));
+
+        expect(classifySpy).toHaveBeenCalledTimes(2);
+      });
+
+      it("low conversationFinished (< threshold) keeps context open", async () => {
+        const { hub, emit } = makeVoiceNodeHub();
+        const { output, spoken } = makeSpeechOutput();
+        const { gateway } = makeGateway();
+
+        const firstIntent: ClassifiedIntent = {
+          type: "device-control",
+          deviceLabel: "Porch Light",
+          command: "on",
+          response: "Done — porch light is on.",
+        };
+        let call = 0;
+        const classifySpy = vi.fn().mockImplementation(async () => {
+          if (call++ === 0) return firstIntent;
+          if (call === 1) return { type: "query", response: "What color?", conversationFinished: 0.3 };
+          return { type: "query", response: "Blue." };
+        });
+
+        const mockConfig: ConfigRepository = {
+          get: async () => ({ autoDiscovery: false, conversationFinishedThreshold: DEFAULT_THRESHOLD }),
+          save: async () => {},
+        };
+
+        const service = makeVoiceAutomationService({
+          voiceNodeHub: hub,
+          systemName: "housekeeper",
+          classifier: { classify: classifySpy },
+          devices: makeDeviceRepo([actuator]),
+          automations: makeAutomationRepo(),
+          speechOutput: output,
+          gateway,
+          config: mockConfig,
+        });
+
+        service.start();
+        emit("housekeeper turn on the porch light");
+        await vi.waitFor(() => expect(spoken).toHaveLength(1));
+        await Promise.resolve();
+
+        emit("what about the other one");
+        await vi.waitFor(() => expect(spoken).toHaveLength(2));
+        await Promise.resolve();
+
+        emit("blue please");
+        await vi.waitFor(() => expect(classifySpy).toHaveBeenCalledTimes(3));
+
+        expect(classifySpy.mock.calls[2][0].conversationHistory).toBeDefined();
+        expect(classifySpy.mock.calls[2][0].conversationHistory!.length).toBeGreaterThan(0);
+      });
+
+      it("missing conversationFinished keeps context open (treated as 0)", async () => {
+        const { hub, emit } = makeVoiceNodeHub();
+        const { output, spoken } = makeSpeechOutput();
+        const { gateway } = makeGateway();
+
+        const firstIntent: ClassifiedIntent = {
+          type: "device-control",
+          deviceLabel: "Porch Light",
+          command: "on",
+          response: "Done — porch light is on.",
+        };
+        let call = 0;
+        const classifySpy = vi.fn().mockImplementation(async () => {
+          if (call++ === 0) return firstIntent;
+          return { type: "query", response: "Okay." };
+        });
+
+        const mockConfig: ConfigRepository = {
+          get: async () => ({ autoDiscovery: false, conversationFinishedThreshold: DEFAULT_THRESHOLD }),
+          save: async () => {},
+        };
+
+        const service = makeVoiceAutomationService({
+          voiceNodeHub: hub,
+          systemName: "housekeeper",
+          classifier: { classify: classifySpy },
+          devices: makeDeviceRepo([actuator]),
+          automations: makeAutomationRepo(),
+          speechOutput: output,
+          gateway,
+          config: mockConfig,
+        });
+
+        service.start();
+        emit("housekeeper turn on the porch light");
+        await vi.waitFor(() => expect(spoken).toHaveLength(1));
+        await Promise.resolve();
+
+        emit("thanks");
+        await vi.waitFor(() => expect(spoken).toHaveLength(2));
+        await Promise.resolve();
+
+        emit("another thing");
+        await vi.waitFor(() => expect(classifySpy).toHaveBeenCalledTimes(3));
+      });
+
+      it("Directed Question does not expect conversationFinished (backward compat)", async () => {
+        const { hub, emit } = makeVoiceNodeHub();
+        const { output, spoken } = makeSpeechOutput();
+        const { gateway } = makeGateway();
+
+        const firstIntent: ClassifiedIntent = {
+          type: "device-control",
+          deviceLabel: "Porch Light",
+          command: "on",
+          response: "Done — porch light is on.",
+        };
+        let call = 0;
+        const classifySpy = vi.fn().mockImplementation(async () => {
+          call++;
+          return firstIntent;
+        });
+
+        const mockConfig: ConfigRepository = {
+          get: async () => ({ autoDiscovery: false, conversationFinishedThreshold: DEFAULT_THRESHOLD }),
+          save: async () => {},
+        };
+
+        const service = makeVoiceAutomationService({
+          voiceNodeHub: hub,
+          systemName: "housekeeper",
+          classifier: { classify: classifySpy },
+          devices: makeDeviceRepo([actuator]),
+          automations: makeAutomationRepo(),
+          speechOutput: output,
+          gateway,
+          config: mockConfig,
+        });
+
+        service.start();
+        emit("housekeeper turn on the porch light");
+        await vi.waitFor(() => expect(spoken).toHaveLength(1));
+        await Promise.resolve();
+
+        emit("housekeeper turn off the porch light");
+        await vi.waitFor(() => expect(classifySpy).toHaveBeenCalledTimes(2));
+
+        expect(classifySpy.mock.calls[1][0].conversationHistory).toBeFalsy();
+      });
+    });
   });
 
   describe("query intent", () => {

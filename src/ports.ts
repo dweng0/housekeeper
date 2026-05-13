@@ -215,6 +215,7 @@ export interface AppConfig {
   historyTokenBudget?: number;
   conversationIdleTimeoutMs?: number;
   ttsStreamingEnabled?: boolean;
+  conversationFinishedThreshold?: number;
 }
 
 export interface ClassifiedIntent {
@@ -229,4 +230,5 @@ export interface ClassifiedIntent {
   clarifyingQuestion?: string;
   spokenResponse?: string;
   intentConfidence?: number;
+  conversationFinished?: number;
 }

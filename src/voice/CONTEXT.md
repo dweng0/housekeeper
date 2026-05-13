@@ -81,7 +81,7 @@ One WAV file within a Pre-rendered Response or the `__not_found__` pool. Selecte
 _Avoid_: audio file, take, sample
 
 **Conversation Context**:
-The active per-Voice-Node thread of exchanges that opens after a Directed Question receives a spoken response. While open, subsequent Utterances are treated as Follow-up Utterances and routed to the system without requiring the System Name. Scoped per Voice Node. Closes on: a new Directed Question, a Resident change (`set-resident` intent), conversation history exceeding the token budget, or the Conversation Idle Timeout elapsing.
+The active per-Voice-Node thread of exchanges that opens after a Directed Question receives a spoken response. While open, subsequent Utterances are treated as Follow-up Utterances and routed to the system without requiring the System Name. Scoped per Voice Node. Closes on: a new Directed Question, a Resident change (`set-resident` intent), the Conversation Finished signal exceeding threshold, conversation history exceeding the token budget, or the Conversation Idle Timeout elapsing.
 _Avoid_: context window, conversation session, dialogue state
 
 **Conversation Idle Timeout**:
@@ -100,6 +100,10 @@ _Avoid_: chat history, message log, prior context
 One user Utterance + one system Confirmation Response pair within a Conversation Context. The unit of history in the Conversation History array.
 _Avoid_: exchange, round, interaction
 
+**Conversation Finished**:
+A 0–1 signal returned by the LLM alongside a Classified Intent during Follow-up Utterances, indicating whether the dialogue has concluded. Values: `1.0` = conversation complete (response signals closure, e.g., "Let me know if you need anything else"), `0.0` = conversation should continue (e.g., clarifying question asked). When `conversationFinished >= conversationFinishedThreshold` (default `0.5`), the Conversation Context closes after TTS completes. Only emitted for Follow-up Utterances — Directed Questions do not include this field. See ADR 0015.
+_Avoid_: dialogue end, conversation complete, close signal
+
 ## Relationships
 
 - A **WebSocket Node** sends zero or more **Utterances** to the server over WebSocket
@@ -108,7 +112,7 @@ _Avoid_: exchange, round, interaction
 - A **Directed Question** is one **Utterance** that references the **System Name**
 - A **Directed Question** that receives a spoken response opens a **Conversation Context** on that **Voice Node**
 - A **Follow-up Utterance** is routed like a **Directed Question** but carries **Conversation History**
-- A **Conversation Context** is reset by timeout, a new **Directed Question**, or a **Resident** change
+- A **Conversation Context** is reset by timeout, a new **Directed Question**, a **Resident** change, or **Conversation Finished** signal
 - A TTS response routes to the originating **Voice Node** if it has speaker capability; otherwise routes to the **Default Output Node**
 - Multiple **Voice Nodes** of either transport may be connected simultaneously
 

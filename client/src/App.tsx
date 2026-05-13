@@ -17,6 +17,7 @@ interface AppConfig {
   responseCacheVariantCount?: number;
   intentConfidenceThreshold?: number;
   conversationContextTimeoutSeconds?: number;
+  conversationFinishedThreshold?: number;
 }
 
 interface VoiceNode {
@@ -80,7 +81,7 @@ export default function App() {
   const [form, setForm] = useState<FormState | null>(null);
   const [automationForm, setAutomationForm] = useState<AutomationFormState | null>(null);
   const [voiceNodeEditForm, setVoiceNodeEditForm] = useState<{ id: string; label: string; location: string } | null>(null);
-  const [personaForm, setPersonaForm] = useState<{ persona: string; systemName: string; responseCacheVariantCount: number; intentConfidenceThreshold: number; conversationContextTimeoutSeconds: number } | null>(null);
+  const [personaForm, setPersonaForm] = useState<{ persona: string; systemName: string; responseCacheVariantCount: number; intentConfidenceThreshold: number; conversationContextTimeoutSeconds: number; conversationFinishedThreshold: number } | null>(null);
   const [cacheRebuildStatus, setCacheRebuildStatus] = useState<"idle" | "rebuilding" | "done" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
   const [automationError, setAutomationError] = useState<string | null>(null);
@@ -125,6 +126,7 @@ export default function App() {
       responseCacheVariantCount: config.responseCacheVariantCount ?? 3,
       intentConfidenceThreshold: config.intentConfidenceThreshold ?? 0.7,
       conversationContextTimeoutSeconds: config.conversationContextTimeoutSeconds ?? 30,
+      conversationFinishedThreshold: config.conversationFinishedThreshold ?? 0.5,
     });
     setPersonaError(null);
   }
@@ -148,6 +150,7 @@ export default function App() {
           responseCacheVariantCount: personaForm.responseCacheVariantCount,
           intentConfidenceThreshold: personaForm.intentConfidenceThreshold,
           conversationContextTimeoutSeconds: personaForm.conversationContextTimeoutSeconds,
+          conversationFinishedThreshold: personaForm.conversationFinishedThreshold,
         }),
       });
       setConfig(updated);
@@ -390,6 +393,23 @@ export default function App() {
               onChange={(e) => setPersonaForm({ ...personaForm, conversationContextTimeoutSeconds: Math.max(1, Math.round(Number(e.target.value))) })}
             />
             <p className="text-xs text-muted-foreground">Seconds of silence before follow-up window closes. Default: 30</p>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-sm text-muted-foreground" htmlFor="conversationFinishedThreshold">
+              Conversation Finished Threshold
+            </label>
+            <input
+              id="conversationFinishedThreshold"
+              type="number"
+              min={0}
+              max={1}
+              step={0.05}
+              className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring w-24"
+              value={personaForm.conversationFinishedThreshold}
+              onChange={(e) => setPersonaForm({ ...personaForm, conversationFinishedThreshold: Number(e.target.value) })}
+            />
+            <p className="text-xs text-muted-foreground">LLM's conversationFinished signal above this closes context. Default: 0.5</p>
           </div>
 
           {personaError && <p className="text-sm text-destructive">{personaError}</p>}

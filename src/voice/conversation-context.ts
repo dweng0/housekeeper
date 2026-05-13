@@ -46,10 +46,15 @@ export function makeConversationContext(opts: ConversationContextOptions = {}): 
     },
 
     isOpen() {
-      return open && turns.length > 0 && now() - lastTurnAt < idleTimeoutMs;
+      const result = open && turns.length > 0 && now() - lastTurnAt < idleTimeoutMs;
+      if (!result && turns.length > 0) {
+        console.log(`[ConversationContext] isOpen=false (open=${open}, turns=${turns.length}, elapsed=${now() - lastTurnAt}ms, timeout=${idleTimeoutMs}ms)`);
+      }
+      return result;
     },
 
     reset() {
+      console.log(`[ConversationContext] reset() called — clearing turns (${turns.length}), setting open=false`);
       turns = [];
       open = false;
       lastTurnAt = 0;

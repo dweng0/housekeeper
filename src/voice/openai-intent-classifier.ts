@@ -12,7 +12,7 @@ interface OpenAIClassifierOptions {
 
 const UNKNOWN: ClassifiedIntent = { type: "unknown" };
 
-function buildSystemPrompt(deviceLabels: string[], memories: string[], location?: string, persona?: string, systemName?: string): string {
+function buildSystemPrompt(deviceLabels: string[], memories: string[], location?: string, persona?: string, systemName?: string, conversationHistory?: Array<{ role: string; content: string }>): string {
   const labelList = deviceLabels.length > 0
     ? deviceLabels.map((l) => `- ${l}`).join("\n")
     : "(none registered)";
@@ -23,18 +23,26 @@ function buildSystemPrompt(deviceLabels: string[], memories: string[], location?
 
   const locationSection = location ? `\nOriginating location: ${location}` : "";
 
+  const conversationFinishedSection = conversationHistory && conversationHistory.length > 0
+    ? `\n\nCONVERSATION FINISHED SIGNAL:
+When this is a follow-up utterance (conversationHistory is non-empty), include a "conversationFinished" field (0–1):
+- 1.0 = your response signals the conversation is complete (e.g., "Let me know if you need anything else", no follow-up expected, you've fully addressed the request)
+- 0.0 = conversation should continue (e.g., you asked a clarifying question, expect more input from user)
+- Use intermediate values for uncertainty.`
+    : "";
+
   const basePrompt = `CRITICAL: You must respond with ONLY valid JSON. No exceptions. No conversational text before or after. No markdown code blocks. No explanations.
 
 You are a friendly, knowledgeable household assistant. You handle home automation (controlling devices, creating automations) AND answer any general question the resident asks — knowledge, recommendations, advice, conversation, planning, suggestions. Never refuse a question because it isn't strictly about the house. Treat yourself as a capable general-purpose assistant who happens to also control the home. Parse spoken utterances into structured JSON objects.
 
 Known device labels:
-${labelList}${memorySection}${locationSection}
+${labelList}${memorySection}${locationSection}${conversationFinishedSection}
 
 Return ONLY ONE of these exact JSON shapes:
-1. { "type": "device-control", "deviceLabel": "<label>", "command": "<cmd>", "response": "<spoken confirmation>", "intentConfidence": <0-1>, "residentName": "<name if identified>" }
-2. { "type": "create-automation", "automation": { "enabled": true, "trigger": { "deviceLabel": "<label>", "event": "<event>" }, "actions": [{ "deviceLabel": "<label>", "command": "<cmd>", "durationSeconds": <n>, "reverseCommand": "<cmd>" }] }, "response": "<spoken confirmation>", "intentConfidence": <0-1>, "residentName": "<name if identified>" }
-3. { "type": "query", "query": "<question>", "response": "<conversational answer, 2-3 sentences, spoken English, no markdown>", "intentConfidence": <0-1> }
-4. { "type": "set-resident", "residentName": "<name>", "response": "<warm acknowledgement>", "intentConfidence": <0-1> }
+1. { "type": "device-control", "deviceLabel": "<label>", "command": "<cmd>", "response": "<spoken confirmation>", "intentConfidence": <0-1>, "residentName": "<name if identified>", "conversationFinished": <0-1, only for follow-ups> }
+2. { "type": "create-automation", "automation": { "enabled": true, "trigger": { "deviceLabel": "<label>", "event": "<event>" }, "actions": [{ "deviceLabel": "<label>", "command": "<cmd>", "durationSeconds": <n>, "reverseCommand": "<cmd>" }] }, "response": "<spoken confirmation>", "intentConfidence": <0-1>, "residentName": "<name if identified>", "conversationFinished": <0-1, only for follow-ups> }
+3. { "type": "query", "query": "<question>", "response": "<conversational answer, 2-3 sentences, spoken English, no markdown>", "intentConfidence": <0-1>, "conversationFinished": <0-1, only for follow-ups> }
+4. { "type": "set-resident", "residentName": "<name>", "response": "<warm acknowledgement>", "intentConfidence": <0-1>, "conversationFinished": <0-1, only for follow-ups> }
 5. { "type": "unknown" }
 
 For low confidence (< 0.7), use "clarifyingQuestion" instead of "response":
@@ -68,6 +76,8 @@ Examples of valid responses (COPY THIS FORMAT EXACTLY):
 { "type": "query", "query": "what is the weather", "response": "Looks bright and mild outside today.", "intentConfidence": 0.9 }
 { "type": "query", "query": "places to stay in Bournemouth", "response": "Bournemouth has plenty of seafront hotels and B&Bs. The Marriott Highcliff and Hermitage are popular, or check Airbnb for a more local feel.", "intentConfidence": 0.95 }
 { "type": "query", "query": "how do I poach an egg", "response": "Bring water to a gentle simmer, add a splash of vinegar, swirl it, then slide the egg in. Three minutes gives a soft yolk.", "intentConfidence": 0.95 }
+{ "type": "query", "query": "that's all thanks", "response": "You're welcome! Let me know if you need anything else.", "intentConfidence": 0.95, "conversationFinished": 1.0 }
+{ "type": "query", "query": "what about the other one", "response": "Which other light would you like me to adjust?", "intentConfidence": 0.8, "conversationFinished": 0.0 }
 { "type": "unknown" }`;
 
   if (!persona) return basePrompt;
@@ -104,7 +114,7 @@ export function makeOpenAIIntentClassifier(opts: OpenAIClassifierOptions): Inten
           body: JSON.stringify({
             model: opts.model,
             messages: [
-              { role: "system", content: buildSystemPrompt(deviceLabels, memories, location, persona, systemName) },
+              { role: "system", content: buildSystemPrompt(deviceLabels, memories, location, persona, systemName, conversationHistory) },
               ...conversationHistory,
               { role: "user", content: `${utterance}\n\n[Respond with valid JSON only. No prose.]` },
             ],

@@ -191,8 +191,8 @@ app.get("/api/config", async (_req, res) => {
 
 app.put("/api/config", async (req, res) => {
   const current = await jsonConfigRepository.get();
-  const { defaultOutputNodeId, systemName, persona, responseCacheVariantCount, intentConfidenceThreshold } = req.body as Partial<AppConfig>;
-  const updated: AppConfig = { ...current, defaultOutputNodeId, systemName, persona, responseCacheVariantCount, intentConfidenceThreshold };
+  const { defaultOutputNodeId, systemName, persona, responseCacheVariantCount, intentConfidenceThreshold, conversationFinishedThreshold } = req.body as Partial<AppConfig>;
+  const updated: AppConfig = { ...current, defaultOutputNodeId, systemName, persona, responseCacheVariantCount, intentConfidenceThreshold, conversationFinishedThreshold };
   await jsonConfigRepository.save(updated);
   res.json(updated);
 });
